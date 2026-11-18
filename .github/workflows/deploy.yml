@@ -57,7 +57,7 @@ jobs:
       - name: Codificador de text de BioCLIP 2.5 (només si cal)
         if: steps.taxa-cache.outputs.cache-hit != 'true'
         run: |
-          pip install torch --index-url https://download.pytorch.org/whl/cpu
+          pip install torch torchvision --index-url https://download.pytorch.org/whl/cpu
           pip install open_clip_torch huggingface_hub safetensors
 
       - name: Afegeix a la taula les plantes de la guia que hi falten
