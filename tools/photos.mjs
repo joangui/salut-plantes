@@ -49,9 +49,9 @@ export async function fetchPhotos(dir = ".test-photos") {
     if (!existsSync(file)) {
       try {
         const meta = await (await fetch(`https://en.wikipedia.org/api/rest_v1/page/summary/${encodeURIComponent(title)}`, { headers: UA })).json();
-        let url = meta.thumbnail?.source || meta.originalimage?.source;
+        // Wikimedia només accepta mides de miniatura estàndard: fem servir la que torna l'API.
+        const url = meta.thumbnail?.source || meta.originalimage?.source;
         if (!url) throw new Error("sense imatge");
-        if (url.includes("/thumb/")) url = url.replace(/\/\d+px-/, "/800px-");
         const res = await fetch(url, { headers: UA });
         if (!res.ok) throw new Error(`HTTP ${res.status}`);
         writeFileSync(file, Buffer.from(await res.arrayBuffer()));
