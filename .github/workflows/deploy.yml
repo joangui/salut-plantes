@@ -42,7 +42,26 @@ jobs:
           key: models-${{ hashFiles('tools/fetch_models.py') }}
 
       - name: Descarrega i prepara els models
-        run: python tools/fetch_models.py --out models --cache .model-cache
+        run: python tools/fetch_models.py --out models --cache .model-cache --eval-variants
+
+      - name: Llista d'espècies de la guia
+        run: node tools/kb_species.mjs > .kb-species.json
+
+      - name: Memòria cau de les espècies afegides
+        id: taxa-cache
+        uses: actions/cache@v4
+        with:
+          path: .taxa-cache
+          key: taxa-${{ hashFiles('.kb-species.json', 'tools/extend_taxa.py') }}
+
+      - name: Codificador de text de BioCLIP 2.5 (només si cal)
+        if: steps.taxa-cache.outputs.cache-hit != 'true'
+        run: |
+          pip install torch --index-url https://download.pytorch.org/whl/cpu
+          pip install open_clip_torch huggingface_hub safetensors
+
+      - name: Afegeix a la taula les plantes de la guia que hi falten
+        run: python tools/extend_taxa.py --models models --species .kb-species.json --cache .taxa-cache
 
       - name: Copia les biblioteques a vendor/
         run: node tools/vendor.mjs .

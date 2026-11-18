@@ -1,8 +1,15 @@
 name: Prova de la IA avançada (Gemma 4)
 
-# Manual: descarrega uns 3,7 GB i triga força minuts.
+# Descarrega uns 3,7 GB i triga força minuts: només quan canvia la part de la IA, o a mà.
 on:
   workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - logic.js
+      - gemma-worker.js
+      - tools/ci_gemma.mjs
+      - .github/workflows/gemma-check.yml
 
 permissions:
   contents: read

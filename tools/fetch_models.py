@@ -66,6 +66,7 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--out", default="models")
     ap.add_argument("--cache", default=".model-cache")
+    ap.add_argument("--eval-variants", action="store_true", help="descarrega altres variants per comparar-les als tests")
     args = ap.parse_args()
     os.makedirs(args.out, exist_ok=True)
     os.makedirs(args.cache, exist_ok=True)
@@ -98,6 +99,12 @@ def main():
     json.dump(house_labels, open(os.path.join(args.out, "houseplants-labels.json"), "w", encoding="utf-8"), ensure_ascii=False)
     print(f"  {len(house_labels)} classes, variant {HOUSE['variant']}")
 
+    if args.eval_variants:
+        variants = {}
+        for v in ["onnx/model.onnx", "onnx/model_fp16.onnx", "onnx/model_q4.onnx", "onnx/model_quantized.onnx"]:
+            variants[v] = download(HOUSE["repo"], HOUSE["rev"], v, args.cache)
+        json.dump({"house": variants}, open(os.path.join(args.cache, "eval.json"), "w"), indent=1)
+
     files = {}
     for name in ["flora-fp16.onnx", "flora-fp32.onnx", "flora-taxa-f16.bin", "flora-taxa.json", "houseplants.onnx", "houseplants-labels.json"]:
         p = os.path.join(args.out, name)
@@ -117,6 +124,7 @@ def main():
             "names": "models/flora-taxa.json",
             "dim": int(t.shape[1]),
             "count": int(t.shape[0]),
+            "count_original": int(t.shape[0]),
             "source": f"https://huggingface.co/{FLORA['repo']}/tree/{FLORA['rev']}",
             "license": FLORA["license"],
         },

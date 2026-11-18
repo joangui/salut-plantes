@@ -5,7 +5,7 @@ import sys
 
 out = sys.argv[1] if len(sys.argv) > 1 else "_site"
 FILES = [
-    "index.html", "app.js", "kb.js", "logic.js", "preprocess.js",
+    "index.html", "app.js", "kb.js", "logic.js", "preprocess.js", "ranking.js",
     "ml-worker.js", "gemma-worker.js", "sw.js", "manifest.webmanifest",
 ]
 DIRS = ["icons", "vendor", "models"]

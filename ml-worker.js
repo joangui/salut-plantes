@@ -1,10 +1,10 @@
 // Worker que identifica plantes al dispositiu amb ONNX Runtime Web.
 // Models: BioCLIP 2.5 destil·lat (4.271 espècies) i un classificador de plantes d'interior (47 classes).
-import { SIZE, toCHW, l2normalize, meanVectors, cosine, f16ToF32, f32ArrayToF16, similarities, topKSoftmax } from "./preprocess.js";
+import { SIZE, toCHW, l2normalize, meanVectors, cosine, f16ToF32, f32ArrayToF16, similarities } from "./preprocess.js";
+import { FLORA_PRIOR, floraPrior, rankFlora } from "./ranking.js";
 
 const BASE = new URL("./", self.location.href).href;
 const MODEL_CACHE = "salut-plantes-models-v1";
-const FLORA_SCALE = 100; // logit scale típic de CLIP
 
 let ort = null;
 let backend = null; // "webgpu" | "wasm"
@@ -14,6 +14,7 @@ const sessions = {};
 let taxa = null;
 let taxaDim = 1024;
 let names = null;
+let prior = null;
 let houseLabels = null;
 
 const post = (msg) => self.postMessage(msg);
@@ -152,6 +153,7 @@ async function prepare(parts, reportProgress = true) {
     taxaDim = manifest.flora.dim;
     taxa = f16ToF32(new Uint16Array(tableBuf));
     names = JSON.parse(new TextDecoder().decode(namesBuf));
+    prior = floraPrior(names, FLORA_PRIOR);
     sessions.flora = await createSession(modelPath, modelBuf);
     sessions.floraIsF16 = modelPath === manifest.flora.model_fp16;
   }
@@ -215,10 +217,10 @@ async function classify(images, useHouse) {
     if (useHouse) houseProbs.push(softmax(Array.from(await runVector(sessions.house, toCHW(rgba, "vit")))));
   }
   const mean = l2normalize(meanVectors(embeds));
-  const flora = topKSoftmax(similarities(taxa, taxaDim, mean), 8, FLORA_SCALE)
+  const flora = rankFlora(similarities(taxa, taxaDim, mean), prior, 8)
     .map(({ i, p, s }) => ({ sci: names[i], p, cos: s }));
   const perPhoto = embeds.map((e) => {
-    const [top] = topKSoftmax(similarities(taxa, taxaDim, e), 1, FLORA_SCALE);
+    const [top] = rankFlora(similarities(taxa, taxaDim, e), prior, 1);
     return { sci: names[top.i], p: top.p };
   });
   let minPair = 1;

@@ -1,27 +1,31 @@
 // Prova la identificació amb els models reals i fotos reals (Node + onnxruntime-node).
-// Fa servir el mateix preprocessament i la mateixa lògica que l'app.
-import { readFileSync, writeFileSync, mkdirSync } from "node:fs";
+// Compara estratègies per triar la que fa servir l'app. Mateix preprocessament que el navegador.
+import { readFileSync, writeFileSync, mkdirSync, existsSync } from "node:fs";
 import sharp from "sharp";
-import { SIZE, toCHW, l2normalize, f16ToF32, f32ArrayToF16, similarities, topKSoftmax, cosine } from "../preprocess.js";
-import { plantInfo, normSci } from "../kb.js";
-import { mergeCandidates, confidenceFromP } from "../logic.js";
+import { SIZE, toCHW, l2normalize, f16ToF32, f32ArrayToF16, similarities, cosine } from "../preprocess.js";
+import { HOUSEPLANT_SCI, normSci } from "../kb.js";
+import { mergeCandidates } from "../logic.js";
 import { fetchPhotos } from "./photos.mjs";
+import { floraPrior, floraMembership, rankFlora } from "../ranking.js";
 
 const ortMod = await import("onnxruntime-node");
 const ort = ortMod.default ?? ortMod;
 
 const man = JSON.parse(readFileSync("models/manifest.json", "utf8"));
+const dim = man.flora.dim;
 const asU16 = (buf) => new Uint16Array(buf.buffer.slice(buf.byteOffset, buf.byteOffset + buf.byteLength));
 const table = f16ToF32(asU16(readFileSync(man.flora.table)));
 const names = JSON.parse(readFileSync(man.flora.names, "utf8"));
+const nOrig = man.flora.count_original || names.length;
 const houseLabels = JSON.parse(readFileSync(man.house.labels, "utf8"));
+console.log(`Taula: ${names.length} espècies (${names.length - nOrig} afegides de la guia, plantilla ${man.flora.extra_template || "—"})`);
 
 const flora32 = await ort.InferenceSession.create(man.flora.model_fp32);
-const house = await ort.InferenceSession.create(man.house.model);
-let flora16 = null;
-try { flora16 = await ort.InferenceSession.create(man.flora.model_fp16); } catch (err) { console.log(`fp16 a CPU: no carrega (${err.message.split("\n")[0]})`); }
-for (const [label, s] of [["flora fp32", flora32], ["flora fp16", flora16], ["house", house]]) {
-  if (s) console.log(`${label}: entrades ${JSON.stringify(s.inputNames)} sortides ${JSON.stringify(s.outputNames)}`);
+const flora16 = await ort.InferenceSession.create(man.flora.model_fp16).catch(() => null);
+const houseSessions = { "desplegat": await ort.InferenceSession.create(man.house.model) };
+if (existsSync(".model-cache/eval.json")) {
+  const ev = JSON.parse(readFileSync(".model-cache/eval.json", "utf8"));
+  for (const [k, path] of Object.entries(ev.house || {})) houseSessions[k] = await ort.InferenceSession.create(path);
 }
 
 async function run(session, data) {
@@ -36,47 +40,72 @@ async function run(session, data) {
   const t = out[session.outputNames[0]];
   return t.type === "float16" ? f16ToF32(t.data) : Float32Array.from(t.data);
 }
-function softmax(v) {
-  const m = Math.max(...v);
-  const e = v.map((x) => Math.exp(x - m));
-  const s = e.reduce((a, b) => a + b, 0);
-  return e.map((x) => x / s);
-}
+const softmax = (v) => { const m = Math.max(...v); const e = v.map((x) => Math.exp(x - m)); const s = e.reduce((a, b) => a + b, 0); return e.map((x) => x / s); };
 const key2 = (s) => normSci(s).split(" ").slice(0, 2).join(" ");
 const genus = (s) => normSci(s).split(" ")[0];
+const matches = (sci, expected) => (expected.split(" ").length === 1 ? genus(sci) === genus(expected) : key2(sci) === key2(expected));
+
+// Estratègies d'ordenació a comparar
+const membership = floraMembership(names);
+console.log(`A la guia: ${membership.filter((m) => m === 2).length} espècies i ${membership.filter((m) => m === 1).length} més del mateix gènere`);
+const strategies = {
+  "original (4.271)": { rows: nOrig, prior: null },
+  "ampliada": { rows: names.length, prior: null },
+  "ampliada + preferència suau (×3, ×1,5)": { rows: names.length, prior: floraPrior(names, { species: 3, genus: 1.5 }) },
+  "ampliada + preferència (×10, ×3)": { rows: names.length, prior: floraPrior(names, { species: 10, genus: 3 }) },
+  "ampliada + preferència forta (×30, ×5)": { rows: names.length, prior: floraPrior(names, { species: 30, genus: 5 }) },
+  "només la guia": { rows: names.length, prior: Float32Array.from(membership, (m) => (m > 0 ? 0 : -Infinity)) },
+};
 
 const photos = await fetchPhotos();
+const tally = Object.fromEntries(Object.keys(strategies).map((k) => [k, { sp: 0, ge: 0 }]));
+const houseTally = Object.fromEntries(Object.keys(houseSessions).map((k) => [k, { ok: 0, n: 0, maxp: 0, margin: 0 }]));
 const rows = [];
-let sp = 0, ge = 0, top3 = 0, merged = 0, mergedGenus = 0, f16agree = [];
+let f16cos = [];
 for (const ph of photos) {
   const { data } = await sharp(ph.file).resize(SIZE, SIZE, { fit: "fill" }).removeAlpha().ensureAlpha().raw().toBuffer({ resolveWithObject: true });
   const emb = l2normalize(await run(flora32, toCHW(data, "unit")));
-  if (flora16) f16agree.push(cosine(emb, l2normalize(await run(flora16, toCHW(data, "unit")))));
-  const flora = topKSoftmax(similarities(table, man.flora.dim, emb), 5, 100).map(({ i, p, s }) => ({ sci: names[i], p, cos: s }));
-  const hp = softmax(Array.from(await run(house, toCHW(data, "vit"))));
-  const houseTop = hp.map((p, k) => ({ label: houseLabels[k], p })).sort((a, b) => b.p - a.p).slice(0, 3);
-  const cands = mergeCandidates({ flora, house: houseTop }, ph.setting);
-  const ok1 = key2(flora[0].sci) === key2(ph.expected);
-  const okG = genus(flora[0].sci) === genus(ph.expected);
-  const ok3 = flora.slice(0, 3).some((c) => key2(c.sci) === key2(ph.expected));
-  const okM = key2(cands[0].sci) === key2(ph.expected) || (ph.expected.split(" ").length === 1 && genus(cands[0].sci) === genus(ph.expected));
-  const okMG = genus(cands[0].sci) === genus(ph.expected);
-  sp += ok1; ge += okG; top3 += ok3; merged += okM; mergedGenus += okMG;
-  const row = {
-    photo: ph.title, expected: ph.expected, setting: ph.setting,
-    floraTop: flora.slice(0, 3).map((c) => `${c.sci} ${(c.p * 100).toFixed(0)}%`),
-    houseTop: `${houseTop[0].label} ${(houseTop[0].p * 100).toFixed(0)}%`,
-    final: `${cands[0].sci} (${plantInfo(cands[0].sci).ca || "—"}) ${(cands[0].p * 100).toFixed(0)}% ${confidenceFromP(cands[0].p)}`,
-    ok: okM ? "✔" : okMG ? "≈" : "✘",
-  };
-  rows.push(row);
-  console.log(`${row.ok} ${ph.title.padEnd(24)} → ${row.final}\n    flora: ${row.floraTop.join(" | ")}\n    interior: ${row.houseTop}`);
+  if (flora16) f16cos.push(cosine(emb, l2normalize(await run(flora16, toCHW(data, "unit")))));
+  const sims = similarities(table, dim, emb);
+  const detail = {};
+  for (const [k, st] of Object.entries(strategies)) {
+    const top = rankFlora(sims.subarray(0, st.rows), st.prior ? st.prior.slice(0, st.rows) : null, 3).map((c) => ({ sci: names[c.i], p: c.p }));
+    tally[k].sp += matches(top[0].sci, ph.expected) && ph.expected.split(" ").length > 1 ? 1 : 0;
+    tally[k].ge += genus(top[0].sci) === genus(ph.expected) ? 1 : 0;
+    detail[k] = top;
+  }
+  const expectedIdx = names.findIndex((n) => key2(n) === key2(ph.expected));
+  const expectedCos = expectedIdx >= 0 ? sims[expectedIdx] : null;
+  const houseOut = {};
+  for (const [k, s] of Object.entries(houseSessions)) {
+    const logits = Array.from(await run(s, toCHW(data, "vit")));
+    const p = softmax(logits);
+    const order = p.map((v, i) => i).sort((a, b) => p[b] - p[a]);
+    houseOut[k] = { label: houseLabels[order[0]], p: p[order[0]], margin: logits[order[0]] - logits[order[1]] };
+    if (ph.setting === "indoors") {
+      const t = houseTally[k];
+      t.n++; t.maxp += p[order[0]]; t.margin += logits[order[0]] - logits[order[1]];
+      if (matches(HOUSEPLANT_SCI[houseLabels[order[0]]] || "", ph.expected)) t.ok++;
+    }
+  }
+  const pick = detail["ampliada + preferència (×10, ×3)"];
+  const h = houseOut["desplegat"];
+  const cands = mergeCandidates({ flora: pick, house: [{ label: h.label, p: h.p, margin: h.margin }] }, ph.setting);
+  rows.push({ photo: ph.title, expected: ph.expected, detail, house: houseOut, final: cands[0] });
+  const ok = (sci) => (matches(sci, ph.expected) ? "✔" : genus(sci) === genus(ph.expected) ? "≈" : "✘");
+  console.log(`${ph.title.padEnd(24)} esperat ${ph.expected}${expectedIdx < 0 ? " (no és a la taula)" : ` · cos esperat ${expectedCos.toFixed(3)}`}`);
+  for (const k of ["original (4.271)", "ampliada", "ampliada + preferència (×10, ×3)", "només la guia"]) {
+    console.log(`   ${ok(detail[k][0].sci)} ${k.padEnd(34)} ${detail[k].map((c) => `${c.sci} ${(c.p * 100).toFixed(0)}%`).join(" | ")}`);
+  }
+  console.log(`   interior: ${Object.entries(houseOut).map(([k, h]) => `${k.replace("onnx/", "")}: ${h.label} ${(h.p * 100).toFixed(0)}% Δ${h.margin.toFixed(2)}`).join(" · ")}`);
 }
-const n = rows.length;
-const pct = (x) => `${((100 * x) / n).toFixed(0)}%`;
-console.log(`\nFotos: ${n}`);
-console.log(`Model botànic: espècie top-1 ${pct(sp)}, gènere top-1 ${pct(ge)}, espècie dins top-3 ${pct(top3)}`);
-console.log(`Resultat final de l'app: espècie ${pct(merged)}, gènere ${pct(mergedGenus)}`);
-if (f16agree.length) console.log(`fp16 vs fp32 (cosinus mitjà): ${(f16agree.reduce((a, b) => a + b, 0) / f16agree.length).toFixed(4)}`);
+
+const n = photos.length;
+const nSp = photos.filter((p) => p.expected.split(" ").length > 1).length;
+console.log(`\nFotos: ${n} (${nSp} amb espècie concreta)`);
+for (const [k, t] of Object.entries(tally)) console.log(`  ${k.padEnd(40)} espècie ${((100 * t.sp) / nSp).toFixed(0)}% · gènere ${((100 * t.ge) / n).toFixed(0)}%`);
+console.log("Model d'interior (fotos d'interior):");
+for (const [k, t] of Object.entries(houseTally)) if (t.n) console.log(`  ${k.padEnd(28)} encerts ${t.ok}/${t.n} · prob. màx. mitjana ${(t.maxp / t.n).toFixed(2)} · marge mitjà ${(t.margin / t.n).toFixed(2)}`);
+if (f16cos.length) console.log(`fp16 vs fp32 (cosinus mitjà): ${(f16cos.reduce((a, b) => a + b, 0) / f16cos.length).toFixed(4)}`);
 mkdirSync("ci-artifacts", { recursive: true });
-writeFileSync("ci-artifacts/light-results.json", JSON.stringify({ rows, summary: { n, sp, ge, top3, merged, mergedGenus } }, null, 1));
+writeFileSync("ci-artifacts/light-results.json", JSON.stringify({ tally, houseTally, rows }, null, 1));

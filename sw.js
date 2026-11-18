@@ -1,6 +1,6 @@
 // Service worker: fa que l'app funcioni sense connexió.
 // L'app es desa al primer accés; els models es desen la primera vegada que es fan servir.
-const VERSION = "2026-11-18.1";
+const VERSION = "2026-11-18.2";
 const SHELL_CACHE = `salut-plantes-shell-${VERSION}`;
 const MODEL_CACHE = "salut-plantes-models-v1";
 
@@ -11,6 +11,7 @@ const SHELL = [
   "kb.js",
   "logic.js",
   "preprocess.js",
+  "ranking.js",
   "ml-worker.js",
   "gemma-worker.js",
   "manifest.webmanifest",
