@@ -149,7 +149,7 @@ test("informe amb IA: cap candidat encaixa i la IA en proposa un altre", () => {
   assert.equal(pick('{"candidate":1,"id_confidence":"low"}').conf, "medium");
   assert.equal(pick('{"candidate":2,"id_confidence":"medium"}').sci, "Persea americana");
   assert.equal(pick('{"candidate":2,"id_confidence":"medium"}').conf, "high");
-  assert.match(compose(run).summary, /^A les fotos no s'hi veuen plagues, fongs ni fulles malmeses/);
+  assert.match(compose(run).summary, /^A les fotos no s'hi veu cap plaga ni malaltia clara/);
 });
 
 test("el prompt inclou candidats, codis i context", () => {
@@ -182,7 +182,7 @@ test("detector de símptomes: probabilitats, nivells i la foto on es veu", () =>
 test("informe amb el que es veu a les fotos", () => {
   const base = { cands: [{ sci: "Citrus × limon", p: 0.8 }], symptoms: [], date: new Date(2026, 10, 18), signsReady: true };
   const clean = compose({ ...base, signs: [] });
-  assert.match(clean.summary, /^A les fotos no s'hi veuen plagues/);
+  assert.match(clean.summary, /^A les fotos no s'hi veu cap plaga ni malaltia clara/);
   assert.equal(clean.pests, "none_seen");
   assert.equal(clean.status, "healthy");
   const run = { ...base, signs: [{ id: "pugo", p: 0.95, level: "sure", photo: 0 }, { id: "closques", p: 0.4, level: "maybe", photo: 1 }] };

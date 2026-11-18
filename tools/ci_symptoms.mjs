@@ -3,7 +3,7 @@
 // 2) Fotos de Wikipedia de plagues, fongs i fulles malmeses: quantes en troba.
 import { readFileSync, writeFileSync, mkdirSync } from "node:fs";
 import sharp from "sharp";
-import { SIZE, toCHW, l2normalize, f16ToF32 } from "../preprocess.js";
+import { SIZE, toCHW, l2normalize, f16ToF32, clsMeanFeatures } from "../preprocess.js";
 import { loadSignModel, detectSigns, SIGNS } from "../symptoms.js";
 import { fetchPhotos, SYMPTOM_PHOTOS } from "./photos.mjs";
 
@@ -12,11 +12,20 @@ const ort = ortMod.default ?? ortMod;
 const man = JSON.parse(readFileSync("models/manifest.json", "utf8"));
 if (!man.symptoms) { console.log("No hi ha detector de símptomes al manifest."); process.exit(0); }
 const model = loadSignModel(JSON.parse(readFileSync(man.symptoms.model, "utf8")));
-const session = await ort.InferenceSession.create(man.flora.model_fp32);
+// Mateix codificador que l'app: DINOv2 si el manifest el porta, si no el model botànic.
+const encPath = man.symptoms.encoder_model || man.flora.model_fp32;
+const session = await ort.InferenceSession.create(encPath);
+const isDino = !!man.symptoms.encoder_model;
+console.log(`Codificador: ${isDino ? `DINOv2 (${man.symptoms.encoder_source || encPath})` : "BioCLIP (model botànic)"}`);
 
 async function embed(file) {
   const { data } = await sharp(file).resize(SIZE, SIZE, { fit: "fill" }).removeAlpha().ensureAlpha().raw().toBuffer({ resolveWithObject: true });
-  const out = await session.run({ [session.inputNames[0]]: new ort.Tensor("float32", toCHW(data, "unit"), [1, 3, SIZE, SIZE]) });
+  const x = new ort.Tensor("float32", toCHW(data, isDino ? "imagenet" : "unit"), [1, 3, SIZE, SIZE]);
+  const out = await session.run({ [session.inputNames[0]]: x });
+  if (isDino) {
+    const t = out[session.outputNames.includes("last_hidden_state") ? "last_hidden_state" : session.outputNames[0]];
+    return clsMeanFeatures(Float32Array.from(t.data), t.dims[1], t.dims[2]);
+  }
   const t = out[session.outputNames[0]];
   return l2normalize(t.type === "float16" ? f16ToF32(t.data) : Float32Array.from(t.data));
 }

@@ -242,6 +242,6 @@
       "plantdoc": 150
     }
   },
-  "encoder": "bioclip",
+  "encoder": "dino_int8",
   "created_before": "2026-11-01"
 }

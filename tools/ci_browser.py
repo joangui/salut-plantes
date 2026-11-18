@@ -90,6 +90,8 @@ with sync_playwright() as p:
     mildew = os.path.join(PHOTOS, "simptomes", "Powdery_mildew.jpg")
     if os.path.exists(mildew):
         page.click("#set-pot")
+        page.click("#slot-1-remove")
+        page.wait_for_function("document.querySelectorAll('.slot.filled').length === 0")
         page.set_input_files("#file-input", mildew)
         page.wait_for_function("document.querySelectorAll('.slot.filled').length === 1")
         page.click("#analyze")

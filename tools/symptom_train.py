@@ -38,7 +38,8 @@ COMMONS = "https://commons.wikimedia.org/w/api.php"
 SIZE = 224
 IMG_SIDE = 512
 SURE = 0.9    # precisió mínima per dir «es veu a la foto»
-MAYBE = 0.6   # precisió mínima per dir «potser»
+MAYBE = 0.7   # precisió mínima per dir «potser»
+FLOOR_SURE, FLOOR_MAYBE = 0.5, 0.3  # probabilitat mínima, encara que la classe sigui fàcil
 MIN_CLASS = 60
 DINO_REPO = "onnx-community/dinov2-small"
 DINO_FILES = {"dino": "onnx/model.onnx", "dino_int8": "onnx/model_int8.onnx"}
@@ -295,9 +296,16 @@ class Encoder:
 
 def dino_path(name, cache_dir):
     path = os.path.join(cache_dir, "models", os.path.basename(DINO_FILES[name]).replace("model", "dinov2-small"))
+    if os.path.exists(path) and not os.path.exists(path + ".rev"):
+        with open(path + ".rev", "w") as f:
+            f.write(get_json(f"https://huggingface.co/api/models/{DINO_REPO}", pause=0.2).get("sha", "main"))
     if not os.path.exists(path):
         os.makedirs(os.path.dirname(path), exist_ok=True)
-        data = get_bytes(f"https://huggingface.co/{DINO_REPO}/resolve/main/{DINO_FILES[name]}")
+        rev = get_json(f"https://huggingface.co/api/models/{DINO_REPO}", pause=0.2).get("sha", "main")
+        print(f"  DINOv2-small ({DINO_REPO}) revisió {rev}")
+        with open(path + ".rev", "w") as f:
+            f.write(rev)
+        data = get_bytes(f"https://huggingface.co/{DINO_REPO}/resolve/{rev}/{DINO_FILES[name]}")
         if not data:
             raise RuntimeError(f"no s'ha pogut baixar {DINO_FILES[name]}")
         with open(path, "wb") as f:
@@ -402,6 +410,15 @@ def train_eval(X, y, groups, classes, Cs, verbose=True):
         pos = y == k
         t1, p1, r1 = pick_threshold(oof[:, k], pos, SURE)
         t2, p2, r2 = pick_threshold(oof[:, k], pos, MAYBE)
+        # Amb el mínim, es recalcula la precisió i l'abast reals del llindar.
+        def at(t, floor):
+            if t is None:
+                return None, 0.0, 0.0
+            t = max(t, floor)
+            sel = oof[:, k] >= t
+            return t, float((sel & pos).sum() / max(sel.sum(), 1)), float((sel & pos).sum() / max(pos.sum(), 1))
+        t1, p1, r1 = at(t1, FLOOR_SURE)
+        t2, p2, r2 = at(t2, FLOOR_MAYBE)
         sure[cls], maybe[cls] = t1, t2
         conf = np.bincount(oof[pos].argmax(1), minlength=len(classes))
         top = [f"{classes[j]} {conf[j]}" for j in np.argsort(-conf) if j != k and conf[j]][:2]
@@ -554,6 +571,9 @@ def main():
     with open(path, "w") as f:
         json.dump(out, f, separators=(",", ":"))
     entry = {"model": "models/symptoms.json", "classes": r["classes"], "encoder": chosen}
+    rev_file = encoders[chosen].path + ".rev"
+    if os.path.exists(rev_file):
+        entry["encoder_source"] = f"{DINO_REPO}@{open(rev_file).read().strip()}"
     files = {"models/symptoms.json": path}
     if chosen.startswith("dino"):
         enc_dst = os.path.join(args.models, os.path.basename(encoders[chosen].path))

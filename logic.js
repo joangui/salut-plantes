@@ -178,7 +178,7 @@ function healthSummary({ problems, seen, userCount, checked, aiHealth }) {
   if (!seen.length && !problems.length) {
     if (userCount) return "Els símptomes que has marcat no apunten a cap problema concret. Vigila com evoluciona la planta els propers dies.";
     if (aiHealth && aiHealth !== "healthy") return "La IA hi veu algun problema, però cap dels que coneix la guia. Mira la planta de prop i marca el que hi vegis.";
-    if (checked) return "A les fotos no s'hi veuen plagues, fongs ni fulles malmeses: la planta sembla sana. Revisa de tant en tant el revers de les fulles i els brots tendres.";
+    if (checked) return "A les fotos no s'hi veu cap plaga ni malaltia clara: la planta sembla sana. Si hi veus alguna cosa estranya, fes-ne una foto de prop o afegeix-la a «Afegeix el que hagis vist».";
     return "Sense poder revisar les fotos, la valoració només té en compte el que has marcat.";
   }
   const parts = [];

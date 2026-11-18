@@ -71,7 +71,7 @@ jobs:
           restore-keys: symptoms-v2-
 
       - name: Entrena el detector de símptomes (fotos obertes)
-        run: python tools/symptom_train.py --models models --cache .symptom-cache --compare
+        run: python tools/symptom_train.py --models models --cache .symptom-cache
 
       - name: Copia les biblioteques a vendor/
         run: node tools/vendor.mjs .
