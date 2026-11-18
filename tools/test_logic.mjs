@@ -70,50 +70,75 @@ test("la IA afegeix problemes amb codis vàlids", () => {
   assert.equal(d.problems[0].source, "ai");
 });
 
-test("el model d'interior només compta quan té sentit", () => {
-  const res = { flora: [{ sci: "Olea europaea", p: 0.6 }], house: [{ label: "Yucca", p: 0.9 }] };
-  assert.equal(mergeCandidates(res, "")[0].sci, "Olea europaea");
-  assert.equal(mergeCandidates(res, "ground")[0].sci, "Olea europaea");
-  assert.equal(mergeCandidates(res, "indoors")[0].sci, "Yucca gigantea");
-  const weak = { flora: [{ sci: "Arum italicum", p: 0.1 }], house: [{ label: "Pothos (Ivy arum)", p: 0.93 }] };
-  assert.equal(mergeCandidates(weak, "")[0].sci, "Epipremnum aureum");
+test("el model d'interior pesa segons on és la planta", () => {
+  const W = { indoors: 0.65, "": 0.35, pot: 0.25, ground: 0 };
+  const res = { flora: [{ sci: "Olea europaea", p: 0.6, cos: 0.6 }], house: [{ label: "Yucca", p: 0.9 }] };
+  assert.deepEqual(mergeCandidates(res, "ground").map((c) => c.sci), ["Olea europaea"]);
+  assert.equal(mergeCandidates(res, "", W)[0].sci, "Olea europaea");
+  assert.equal(mergeCandidates(res, "indoors", W)[0].sci, "Yucca gigantea");
+  assert.equal(mergeCandidates(res, "indoors", W)[1].cos, 0.6);
+  const agree = mergeCandidates({ flora: [{ sci: "Epipremnum aureum", p: 0.5 }], house: [{ label: "Pothos (Ivy arum)", p: 0.8 }] }, "indoors", W);
+  assert.equal(agree.length, 1);
+  assert.equal(agree[0].src, "both");
+  assert.ok(Math.abs(agree[0].p - (0.35 * 0.5 + 0.65 * 0.8)) < 1e-9);
+  const genus = mergeCandidates({ flora: [{ sci: "Begonia maculata", p: 0.3 }], house: [{ label: "Begonia (Begonia spp.)", p: 0.7 }] }, "indoors", W);
+  assert.equal(genus[0].sci, "Begonia maculata");
+  assert.equal(genus[0].src, "both");
+  assert.equal(mergeCandidates({ flora: [], house: [{ label: "Tulip", p: 0.9 }] }, "pot", W)[0].sci, "Tulipa");
 });
 
-test("lectura de la resposta de Gemma", () => {
-  const raw = "Aquí tens:\n```json\n{\"scientific_name\":\"Citrus × limon\",\"common_name_ca\":\"llimoner\",\"confidence\":\"High\",\"status\":\"needs attention\",\"score\":\"48\",\"summary_ca\":\"Té pugó {als brots}.\",\"pests\":\"found\",\"pest_note_ca\":\"Pugó verd.\",\"problems\":[\"pugo\",\"Fumagina\",\"x\"],\"observations_ca\":[\"Brots arrugats\"]}\n```";
+test("lectura de la resposta de Gemma (només codis)", () => {
+  const raw = "Aquí tens:\n```json\n{\"candidate\": \"2\", \"other\": \"\", \"id_confidence\": \"High\", \"symptoms\": [\"pugo\", \"oid\", \"melassa\", \"inventat\", \"po\"], \"health\": \"needs attention\", \"pests\": \"found\"}\n```";
   const g = parseGemma(raw);
-  assert.equal(g.sci, "Citrus × limon");
-  assert.equal(g.conf, "high");
-  assert.equal(g.status, "needs_attention");
-  assert.equal(g.score, 48);
-  assert.deepEqual(g.problems, ["pugo", "fumagina"]);
-  assert.equal(g.summary, "Té pugó {als brots}.");
+  assert.equal(g.candidate, 2);
+  assert.equal(g.idConf, "high");
+  assert.deepEqual(g.symptoms, ["pugo", "pols_blanca", "melassa"]);
+  assert.equal(g.health, "needs_attention");
+  assert.equal(g.pests, "found");
+  assert.deepEqual(parseGemma('{"symptoms":["pols"],"health":"healthy"}').symptoms, ["pols_blanca"]);
+  assert.deepEqual(parseGemma('{"symptoms":["Spider mites","oidi","whitefly"]}').symptoms, ["teles", "pols_blanca", "mosca_blanca"]);
   assert.equal(parseGemma("res de res"), null);
   assert.equal(firstJsonObject("{malament} {\"a\":1}").a, 1);
 });
 
-test("informe compost amb IA i correcció de la persona", () => {
+test("informe amb IA: candidat, símptomes vistos i text en català", () => {
   const run = {
-    cands: [{ sci: "Murraya paniculata", p: 0.3 }, { sci: "Olea europaea", p: 0.1 }],
-    ai: parseGemma('{"scientific_name":"Citrus limon","confidence":"medium","status":"minor_issues","score":70,"summary_ca":"Bé.","pests":"none_seen","problems":[]}'),
-    symptoms: ["pugo"], date: new Date(2026, 10, 18),
+    cands: [{ sci: "Artocarpus altilis", p: 0.6 }, { sci: "Citrus × limon", p: 0.3 }],
+    ai: parseGemma('{"candidate":2,"id_confidence":"high","symptoms":["pugo","grogues_velles"],"health":"minor_issues","pests":"found"}'),
+    symptoms: ["melassa"], date: new Date(2026, 10, 18),
   };
   const r = compose(run);
   assert.equal(r.displayName, "Llimoner");
+  assert.equal(r.conf, "medium");
   assert.equal(r.info.group, "citrics");
   assert.equal(r.pests, "found");
-  assert.ok(r.score <= 70);
+  assert.match(r.pestNote, /La IA hi veu: pugó/);
+  assert.match(r.summary, /^A les fotos, la IA hi veu: insectes petits/);
+  assert.ok(r.score <= 79);
+  const src = Object.fromEntries(r.dx.problems.map((p) => [p.code, p.source]));
+  assert.equal(src.pugo, "ai");
+  assert.equal(src.fumagina, "symptoms");
   const fixed = compose(run, "Olea europaea");
   assert.equal(fixed.displayName, "Olivera");
   assert.equal(fixed.conf, "user");
 });
 
-test("el prompt inclou els codis i el context", () => {
+test("informe amb IA: cap candidat encaixa i la IA en proposa un altre", () => {
+  const run = { cands: [{ sci: "Monstera deliciosa", p: 0.99 }], ai: parseGemma('{"candidate":0,"other":"Fatsia japonica","id_confidence":"low","symptoms":[],"health":"healthy","pests":"none_seen"}'), symptoms: [], date: new Date() };
+  assert.equal(compose(run).sci, "Monstera deliciosa");
+  const run2 = { ...run, ai: { ...run.ai, idConf: "high" } };
+  assert.equal(compose(run2).sci, "Fatsia japonica");
+  assert.equal(compose(run).summary, "La IA no hi veu cap símptoma de malaltia ni de plagues: la planta sembla sana.");
+});
+
+test("el prompt inclou candidats, codis i context", () => {
   const p = buildGemmaPrompt({ symptoms: ["pugo"], photoCount: 2, location: "Barcelona", iso: "2026-11-18", setting: "pot" }, [{ sci: "Olea europaea", p: 0.4 }]);
-  assert.match(p, /excess_reg = /);
-  assert.match(p, /Olea europaea \(Olivera\) 40%/);
+  assert.match(p, /1\. Olea europaea \(40%\)/);
+  assert.match(p, /pols_blanca = white powdery coating/);
   assert.match(p, /outdoors in a pot/);
   assert.match(p, /The 2 photos show/);
+  assert.match(p, /owner also reports: aphids/);
+  assert.ok(!/no_creix/.test(p));
 });
 
 test("el selector té noms únics i ordenats", () => {

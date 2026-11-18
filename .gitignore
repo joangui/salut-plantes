@@ -6,3 +6,4 @@ models/
 vendor/ort/
 vendor/transformers/
 __pycache__/
+ci-artifacts/

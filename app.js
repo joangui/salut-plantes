@@ -568,7 +568,6 @@ function renderSheet(report, opts = {}) {
   const healthText = el("div", { class: "health-text" },
     el("p", { class: "status-pill" }, icon(st.icon), st.label),
     el("p", { class: "summary" }, report.summary),
-    report.observations.length ? el("ul", { class: "obs" }, report.observations.map((o) => el("li", null, o))) : null,
     el("p", { class: "pests", "data-p": report.pests }, icon(pestsState[0]), el("span", null, el("strong", null, pestsState[1]), report.pestNote ? " " + report.pestNote : "")),
     el("p", { class: "basis" }, example ? "" : run.ai ? "Valoració de la IA a partir de les fotos i dels símptomes marcats." : "Valoració a partir dels símptomes que has marcat: el model bàsic identifica la planta, però no n'avalua la salut a la foto."),
   );
@@ -747,7 +746,7 @@ async function analyze() {
       $("#stop").hidden = false;
       const bar = state.ai.cached ? null : progressBar($("#run-progress"));
       state.ai.loading = !state.ai.loaded;
-      const out = await gemma.call("analyze", { images: photos.map((p) => p.blob), prompt: buildGemmaPrompt({ ...run, photoCount: photos.length }, run.cands), maxTokens: 600 }, (m) => {
+      const out = await gemma.call("analyze", { images: photos.map((p) => p.blob), prompt: buildGemmaPrompt({ ...run, photoCount: photos.length }, run.cands), maxTokens: 160 }, (m) => {
         if (m.type === "progress") { bar?.set(m.loaded, m.total); pendingLine(`Descarregant la IA: ${bytes(m.loaded)} de ${bytes(m.total)}`); }
         if (m.type === "token") { setStatus("La IA està escrivint l'informe"); pendingLine("La IA està escrivint l'informe…"); }
       });

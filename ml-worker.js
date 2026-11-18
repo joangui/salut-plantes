@@ -1,7 +1,7 @@
 // Worker que identifica plantes al dispositiu amb ONNX Runtime Web.
-// Models: BioCLIP 2.5 destil·lat (4.271 espècies) i un classificador de plantes d'interior (47 classes).
+// Models: BioCLIP 2.5 destil·lat (4.271 espècies + les de la guia) i un classificador de plantes d'interior (47 classes).
 import { SIZE, toCHW, l2normalize, meanVectors, cosine, f16ToF32, f32ArrayToF16, similarities } from "./preprocess.js";
-import { FLORA_PRIOR, floraPrior, rankFlora } from "./ranking.js";
+import { FLORA_PRIOR, floraPrior, rankFlora, houseProbs } from "./ranking.js";
 
 const BASE = new URL("./", self.location.href).href;
 const MODEL_CACHE = "salut-plantes-models-v1";
@@ -198,23 +198,16 @@ async function runVector(session, data) {
   return values;
 }
 
-function softmax(logits) {
-  const max = Math.max(...logits);
-  const exps = logits.map((v) => Math.exp(v - max));
-  const sum = exps.reduce((a, b) => a + b, 0);
-  return exps.map((v) => v / sum);
-}
-
 async function classify(images, useHouse) {
   // La primera anàlisi ho descarrega tot, perquè després l'app funcioni sense connexió.
   await prepare(["flora", "house"], true);
   const t0 = performance.now();
   const embeds = [];
-  const houseProbs = [];
+  const houseRuns = [];
   for (const blob of images) {
     const rgba = await pixels(blob);
     embeds.push(l2normalize(await runVector(sessions.flora, toCHW(rgba, "unit"))));
-    if (useHouse) houseProbs.push(softmax(Array.from(await runVector(sessions.house, toCHW(rgba, "vit")))));
+    if (useHouse) houseRuns.push(houseProbs(await runVector(sessions.house, toCHW(rgba, "vit"))));
   }
   const mean = l2normalize(meanVectors(embeds));
   const flora = rankFlora(similarities(taxa, taxaDim, mean), prior, 8)
@@ -226,8 +219,8 @@ async function classify(images, useHouse) {
   let minPair = 1;
   for (let a = 0; a < embeds.length; a++) for (let b = a + 1; b < embeds.length; b++) minPair = Math.min(minPair, cosine(embeds[a], embeds[b]));
   let house = [];
-  if (useHouse && houseProbs.length) {
-    const avg = houseProbs[0].map((_, k) => houseProbs.reduce((acc, p) => acc + p[k], 0) / houseProbs.length);
+  if (useHouse && houseRuns.length) {
+    const avg = houseRuns[0].map((_, k) => houseRuns.reduce((acc, p) => acc + p[k], 0) / houseRuns.length);
     house = avg.map((p, k) => ({ label: houseLabels[k], p })).sort((a, b) => b.p - a.p).slice(0, 3);
   }
   return { backend, flora, perPhoto, minPair, house, ms: Math.round(performance.now() - t0) };

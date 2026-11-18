@@ -1,11 +1,13 @@
 // Lògica pura de l'informe (sense DOM): la fan servir l'app i els tests de Node.
 import {
-  SYMPTOM_BY_ID, STATUS, PROBLEMS, HOUSEPLANT_SCI,
+  SYMPTOMS, SYMPTOM_BY_ID, STATUS, HOUSEPLANT_SCI,
   plantInfo, normSci, diagnose, basicSummary, scoreToStatus,
 } from "./kb.js";
 
 export const SETTINGS = { indoors: "A dins de casa", pot: "A fora, en test", ground: "A fora, al terra" };
 const SETTINGS_EN = { indoors: "indoors", pot: "outdoors in a pot", ground: "outdoors in the ground" };
+const CONF_RANK = { low: 0, medium: 1, high: 2 };
+const STATUS_MAX = { healthy: 95, minor_issues: 79, needs_attention: 59, critical: 34 };
 
 const str = (v) => (typeof v === "string" ? v.trim() : v == null ? "" : String(v).trim());
 const arr = (v) => (Array.isArray(v) ? v.map(str).filter(Boolean) : str(v) ? [str(v)] : []);
@@ -23,43 +25,71 @@ export function confidenceFromP(p) {
   return "low";
 }
 
-// Combina el model botànic amb el de plantes d'interior.
-// El d'interior sempre tria una de les seves 47 classes, així que només compta quan té sentit.
-export function mergeCandidates(res, setting) {
-  const list = (res.flora || []).map((c) => ({ sci: c.sci, p: c.p, src: "flora" }));
-  const floraTop = list[0]?.p || 0;
-  const h = res.house?.[0];
-  if (h) {
-    let w = 0;
-    if (setting === "indoors") w = 1;
-    else if (setting === "" && h.p >= 0.85 && floraTop < 0.35) w = 0.8;
-    else if (setting === "pot" && h.p >= 0.95 && floraTop < 0.15) w = 0.5;
-    if (w > 0) for (const c of res.house) list.push({ sci: HOUSEPLANT_SCI[c.label] || c.label, p: c.p * w, src: "house" });
+// Pes del model de plantes d'interior segons on és la planta; la resta és del model botànic.
+// Ajustat amb la prova de CI amb fotos reals (tools/ci_light.mjs).
+export const HOUSE_WEIGHT = { indoors: 0.65, "": 0.35, pot: 0.25, ground: 0 };
+
+// Combina el model botànic amb el de plantes d'interior (probabilitats ja calibrades).
+export function mergeCandidates(res, setting, weights = HOUSE_WEIGHT) {
+  const flora = res.flora || [];
+  const house = res.house || [];
+  const wh = house.length ? (weights[setting] ?? 0) : 0;
+  const out = new Map();
+  const add = (sci, p, src, cos) => {
+    const k = speciesKey(sci);
+    const prev = out.get(k);
+    if (!prev) { out.set(k, cos == null ? { sci, p, src } : { sci, p, src, cos }); return; }
+    prev.p += p;
+    if (prev.src !== src) prev.src = "both";
+  };
+  for (const c of flora) add(c.sci, (1 - wh) * c.p, "flora", c.cos);
+  if (wh > 0) {
+    for (const h of house) {
+      let sci = HOUSEPLANT_SCI[h.label] || h.label;
+      if (!sci.includes(" ")) {
+        // Etiqueta de gènere («Begonia»): va a l'espècie d'aquest gènere que vegi el model botànic.
+        const f = flora.find((c) => speciesKey(c.sci).split(" ")[0] === speciesKey(sci));
+        if (f) sci = f.sci;
+      }
+      add(sci, wh * h.p, "house");
+    }
   }
-  const best = new Map();
-  for (const c of list) {
-    const k = speciesKey(c.sci);
-    const prev = best.get(k);
-    if (!prev || c.p > prev.p) best.set(k, c);
-  }
-  return [...best.values()].sort((a, b) => b.p - a.p);
+  return [...out.values()].sort((a, b) => b.p - a.p);
 }
 
+/* ---------- IA avançada (Gemma) ----------
+   La IA només tria codis: quina planta de la llista, quins símptomes veu, l'estat i si hi ha plagues.
+   Tot el text de l'informe surt de la guia en català, perquè Gemma E2B sovint respon en castellà. */
+
+const AI_SYMPTOMS = SYMPTOMS.filter((s) => s.en);
+
 export function buildGemmaPrompt(ctx, cands) {
-  const codes = Object.entries(PROBLEMS).map(([k, p]) => `${k} = ${p.gemma}`).join("; ");
-  const hint = cands.slice(0, 5).map((c) => {
-    const info = plantInfo(c.sci);
-    return `${c.sci}${info.ca ? ` (${info.ca})` : ""} ${Math.round(c.p * 100)}%`;
-  }).join(", ");
-  const sy = ctx.symptoms.length ? ctx.symptoms.map((id) => SYMPTOM_BY_ID[id]?.label).filter(Boolean).join("; ") : "none";
   const n = ctx.photoCount;
+  const list = cands.slice(0, 5).map((c, i) => `${i + 1}. ${c.sci} (${Math.round(c.p * 100)}%)`).join("\n");
+  const owner = ctx.symptoms.length ? ctx.symptoms.map((id) => SYMPTOM_BY_ID[id]?.en).filter(Boolean).join("; ") : "nothing";
+  const codes = AI_SYMPTOMS.map((s) => `${s.id} = ${s.en}`).join("\n");
   return [
-    `You are an expert horticulturist and plant pathologist. ${n === 1 ? "The photo shows" : `The ${n} photos show`} one plant. Look closely and reply with ONE JSON object only: no markdown and no other text.`,
-    `Context: location ${ctx.location || "unknown"}; date ${ctx.iso}; where it grows: ${SETTINGS_EN[ctx.setting] || "unknown"}; symptoms ticked by the owner (in Catalan): ${sy}.`,
-    `An offline identification model suggests: ${hint || "nothing"}. It is often wrong and it does not know citrus trees or many garden and house plants, so trust your own eyes.`,
-    `Tasks: 1) identify the plant; 2) judge its health from what is visible and from the ticked symptoms; 3) list only problems you can see or that the ticked symptoms support, using these codes: ${codes}.`,
-    `JSON shape: {"scientific_name":"Genus species","common_name_ca":"nom en català","confidence":"high|medium|low","status":"healthy|minor_issues|needs_attention|critical","score":0-100,"summary_ca":"2 or 3 sentences","pests":"found|none_seen|unclear","pest_note_ca":"1 sentence","problems":["code"],"observations_ca":["short sentence"]}`,
-    `Score bands: healthy 80-100, minor_issues 60-79, needs_attention 35-59, critical 0-34. Write summary_ca, pest_note_ca and observations_ca in Catalan (català), not in Spanish. If the photos do not show a plant, leave scientific_name empty and explain it in summary_ca.`,
+    `You are an expert horticulturist and plant pathologist. ${n === 1 ? "The photo shows" : `The ${n} photos show`} one plant. Look closely.`,
+    `Reply with ONE JSON object only. No markdown, no explanations, no other text.`,
+    ``,
+    `Candidate identifications from a plant model (it can be wrong):`,
+    list || "(none)",
+    ``,
+    `Context: it grows ${SETTINGS_EN[ctx.setting] || "in an unknown place"}; location ${ctx.location || "unknown"}; date ${ctx.iso}. The owner also reports: ${owner}.`,
+    ``,
+    `Symptom codes you may use:`,
+    codes,
+    ``,
+    `JSON format:`,
+    `{"candidate": 1, "other": "", "id_confidence": "high", "symptoms": ["code"], "health": "healthy", "pests": "none_seen"}`,
+    ``,
+    `Rules:`,
+    `- "candidate": the number of the candidate that matches the plant, or 0 if none matches.`,
+    `- "other": only when candidate is 0, the scientific name (Genus species) of the plant.`,
+    `- "id_confidence": high, medium or low.`,
+    `- "symptoms": only codes from the list that you can clearly see in the photos. Use [] if the plant looks healthy.`,
+    `- "health": healthy, minor_issues, needs_attention or critical.`,
+    `- "pests": found, none_seen or unclear.`,
   ].join("\n");
 }
 
@@ -85,60 +115,125 @@ export function firstJsonObject(text) {
   return null;
 }
 
+// Noms que Gemma fa servir de vegades en lloc dels codis de símptoma (problemes o noms en anglès).
+const SYMPTOM_ALIASES = {
+  oidi: "pols_blanca", oid: "pols_blanca", powdery_mildew: "pols_blanca", mildew: "pols_blanca",
+  aphid: "pugo", aphids: "pugo", mealybug: "cotonosa", mealybugs: "cotonosa", cotonet: "cotonosa",
+  closca: "closques", scale: "closques", scale_insects: "closques",
+  aranya: "teles", spider_mites: "teles", mites: "teles", whitefly: "mosca_blanca", whiteflies: "mosca_blanca",
+  gnats: "mosquits", fungus_gnats: "mosquits", fumagina: "melassa", honeydew: "melassa", sooty_mould: "melassa", sooty_mold: "melassa",
+  caterpillar: "erugues", caterpillars: "erugues", cargols: "rastres", snails: "rastres", slugs: "rastres",
+  minador: "galeries", leaf_miner: "galeries", clorosi: "grogues_noves", chlorosis: "grogues_noves",
+  sunburn: "cremades", pansida: "pansides", wilting: "pansides", taques_fong: "taques", leaf_spots: "taques",
+};
+
+// Accepta el codi exacte, un àlies o un prefix inequívoc («pols» → «pols_blanca»).
+function matchCode(raw, ids, aliases = null) {
+  const c = norm(raw);
+  if (!c) return null;
+  if (ids.includes(c)) return c;
+  if (aliases?.[c] && ids.includes(aliases[c])) return aliases[c];
+  if (c.length < 3) return null;
+  const hits = ids.filter((id) => id.startsWith(c) || c.startsWith(id));
+  return hits.length === 1 ? hits[0] : null;
+}
+
 export function parseGemma(text) {
   const o = firstJsonObject(text || "");
   if (!o || typeof o !== "object" || Array.isArray(o)) return null;
-  const conf = ["high", "medium", "low"].includes(norm(o.confidence)) ? norm(o.confidence) : "low";
-  let score = Number(o.score);
-  score = o.score == null || o.score === "" || !Number.isFinite(score) ? null : Math.round(Math.max(0, Math.min(100, score)));
-  const status = STATUS[norm(o.status)] ? norm(o.status) : score == null ? null : scoreToStatus(score);
+  const ids = AI_SYMPTOMS.map((s) => s.id);
+  const symptoms = [...new Set(arr(o.symptoms).map((c) => matchCode(c, ids, SYMPTOM_ALIASES)).filter(Boolean))];
+  const health = matchCode(o.health, Object.keys(STATUS));
+  const pests = matchCode(o.pests, ["found", "none_seen", "unclear"]) || "unclear";
+  const idConf = matchCode(o.id_confidence ?? o.confidence, ["high", "medium", "low"]) || "low";
+  const cand = Number.parseInt(o.candidate, 10);
   return {
-    sci: str(o.scientific_name).replace(/[*_`]/g, ""),
-    commonCa: str(o.common_name_ca),
-    conf,
-    status,
-    score,
-    summary: str(o.summary_ca),
-    pests: ["found", "none_seen", "unclear"].includes(norm(o.pests)) ? norm(o.pests) : "unclear",
-    pestNote: str(o.pest_note_ca),
-    problems: [...new Set(arr(o.problems).map(norm))].filter((c) => PROBLEMS[c]),
-    observations: arr(o.observations_ca).slice(0, 5),
+    candidate: Number.isFinite(cand) && cand >= 0 ? cand : 0,
+    other: str(o.other).replace(/[*_`]/g, ""),
+    idConf,
+    symptoms,
+    health,
+    pests,
   };
+}
+
+function aiSummary({ problems, aiSymptoms, health }) {
+  if (!aiSymptoms.length && !problems.length) {
+    return health && health !== "healthy"
+      ? "La IA hi veu algun problema, però cap dels símptomes que coneix la guia. Revisa la planta de prop i marca el que hi vegis."
+      : "La IA no hi veu cap símptoma de malaltia ni de plagues: la planta sembla sana.";
+  }
+  const seen = listJoin(aiSymptoms.map((id) => SYMPTOM_BY_ID[id].label.toLowerCase()));
+  const parts = [];
+  if (aiSymptoms.length) parts.push(`A les fotos, la IA hi veu: ${seen}.`);
+  if (problems.length) {
+    const names = listJoin(problems.slice(0, 3).map((p) => p.name.toLowerCase()));
+    const worst = problems[0].severity;
+    const lead = worst === "high" ? "Cal actuar de pressa" : worst === "moderate" ? "Convé actuar aquesta setmana" : "No és greu, però convé corregir-ho";
+    parts.push(`El més probable és ${names}. ${lead}: comença pels passos marcats com a «Ara».`);
+  }
+  return parts.join(" ");
 }
 
 // run: { cands, ai, symptoms, date } · forcedSci: planta triada per la persona.
 export function compose(run, forcedSci = null) {
   const cands = run.cands || [];
   const ai = run.ai;
-  let sci, conf;
+
+  // Identificació
+  let sci = "", conf = "low";
+  const top = cands[0];
   if (forcedSci) { sci = forcedSci; conf = "user"; }
-  else if (ai?.sci && ai.conf !== "low") { sci = ai.sci; conf = ai.conf; }
-  else if (cands.length) { sci = cands[0].sci; conf = confidenceFromP(cands[0].p); }
-  else { sci = ai?.sci || ""; conf = "low"; }
+  else if (ai && ai.candidate >= 1 && ai.candidate <= Math.min(5, cands.length)) {
+    const c = cands[ai.candidate - 1];
+    sci = c.sci;
+    const light = confidenceFromP(c.p);
+    conf = ai.candidate === 1 && CONF_RANK[light] > CONF_RANK[ai.idConf] ? light : ai.idConf;
+    if (ai.candidate > 1 && conf === "high") conf = "medium";
+  } else if (ai && ai.candidate === 0 && ai.other && ai.idConf !== "low") {
+    sci = ai.other;
+    conf = "medium";
+  } else if (top) {
+    sci = top.sci;
+    conf = confidenceFromP(top.p);
+  }
   const info = plantInfo(sci);
   const key = speciesKey(sci);
   const alts = cands.filter((c) => speciesKey(c.sci) !== key).slice(0, 2)
     .map((c) => { const i = plantInfo(c.sci); return i.ca ? `${i.ca} (${c.sci})` : c.sci; });
-  const dx = diagnose({ symptoms: [...run.symptoms], extraProblems: ai?.problems || [], group: info.group, date: run.date });
+
+  // Salut
+  const aiSymptoms = ai?.symptoms || [];
+  const all = [...new Set([...run.symptoms, ...aiSymptoms])];
+  const dx = diagnose({ symptoms: all, group: info.group, date: run.date });
+  const fromUser = new Set(diagnose({ symptoms: run.symptoms, group: info.group, date: run.date }).problems.map((p) => p.code));
+  const fromAi = new Set(diagnose({ symptoms: aiSymptoms, group: info.group, date: run.date }).problems.map((p) => p.code));
+  for (const p of dx.problems) p.source = fromUser.has(p.code) ? (fromAi.has(p.code) ? "both" : "symptoms") : "ai";
 
   let score = dx.score;
-  if (ai?.score != null) score = run.symptoms.length ? Math.min(ai.score, dx.score) : ai.score;
+  if (ai?.health && STATUS_MAX[ai.health] != null) score = Math.min(score, STATUS_MAX[ai.health]);
   const status = scoreToStatus(score);
 
-  let pests, pestNote;
   const pestNames = listJoin(dx.pests.map((p) => p.name.toLowerCase()));
-  if (ai) {
-    pests = dx.pests.length && ai.pests !== "found" ? "found" : ai.pests;
-    pestNote = ai.pestNote || (dx.pests.length ? `Has marcat: ${pestNames}.` : "");
-  } else if (dx.pests.length) {
+  let pests, pestNote;
+  if (dx.pests.length) {
     pests = "found";
-    pestNote = `Pel que has marcat: ${pestNames}.`;
+    pestNote = ai && dx.pests.some((p) => p.source !== "symptoms") ? `La IA hi veu: ${pestNames}.` : `Pel que has marcat: ${pestNames}.`;
+  } else if (ai) {
+    pests = ai.pests;
+    pestNote = {
+      found: "La IA hi veu bestioles, però no sap de quina plaga es tracta: revisa el revers de les fulles i els brots tendres.",
+      none_seen: "La IA no hi veu insectes ni rastres de plagues.",
+      unclear: "Amb aquestes fotos no se'n pot estar segur: revisa el revers de les fulles i els brots tendres.",
+    }[ai.pests];
   } else {
     pests = "unmarked";
     pestNote = "Revisa el revers de les fulles i els brots tendres, que és on s'amaguen.";
   }
 
-  const displayName = info.ca || ai?.commonCa || info.genusCa || "";
-  const summary = ai?.summary || basicSummary({ name: displayName, problems: dx.problems, symptomsCount: run.symptoms.length });
-  return { run, sci: info.sci || sci, info, displayName, conf, alts, dx, score, status, pests, pestNote, summary, observations: ai?.observations || [] };
+  const displayName = info.ca || info.genusCa || "";
+  const summary = ai
+    ? aiSummary({ problems: dx.problems, aiSymptoms, health: ai.health })
+    : basicSummary({ name: displayName, problems: dx.problems, symptomsCount: run.symptoms.length });
+  return { run, sci: info.sci || sci, info, displayName, conf, alts, dx, score, status, pests, pestNote, summary };
 }

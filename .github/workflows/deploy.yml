@@ -42,7 +42,7 @@ jobs:
           key: models-${{ hashFiles('tools/fetch_models.py') }}
 
       - name: Descarrega i prepara els models
-        run: python tools/fetch_models.py --out models --cache .model-cache --eval-variants
+        run: python tools/fetch_models.py --out models --cache .model-cache
 
       - name: Llista d'espècies de la guia
         run: node tools/kb_species.mjs > .kb-species.json
