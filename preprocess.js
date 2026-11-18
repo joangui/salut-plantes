@@ -5,6 +5,9 @@ export const SIZE = 224;
 // rgba: píxels RGBA d'una imatge ja redimensionada a SIZE×SIZE.
 // mode "unit": RGB en 0..1 (model BioCLIP, la normalització és dins el graf).
 // mode "vit": (x - 0.5) / 0.5, com el ViTImageProcessor del model d'interior.
+// mode "imagenet": mitjana i desviació d'ImageNet, com DINOv2 (detector de símptomes).
+const IM_MEAN = [0.485, 0.456, 0.406];
+const IM_STD = [0.229, 0.224, 0.225];
 export function toCHW(rgba, mode = "unit") {
   const n = SIZE * SIZE;
   const out = new Float32Array(3 * n);
@@ -12,7 +15,11 @@ export function toCHW(rgba, mode = "unit") {
     const r = rgba[4 * i] / 255;
     const g = rgba[4 * i + 1] / 255;
     const b = rgba[4 * i + 2] / 255;
-    if (mode === "vit") {
+    if (mode === "imagenet") {
+      out[i] = (r - IM_MEAN[0]) / IM_STD[0];
+      out[n + i] = (g - IM_MEAN[1]) / IM_STD[1];
+      out[2 * n + i] = (b - IM_MEAN[2]) / IM_STD[2];
+    } else if (mode === "vit") {
       out[i] = r * 2 - 1;
       out[n + i] = g * 2 - 1;
       out[2 * n + i] = b * 2 - 1;
@@ -122,4 +129,14 @@ export function topKSoftmax(scores, k = 5, scale = 1) {
   for (let i = 0; i < scores.length; i++) { exps[i] = Math.exp(scores[i] * scale - max); sum += exps[i]; }
   const idx = Array.from(scores.keys()).sort((a, b) => scores[b] - scores[a]).slice(0, k);
   return idx.map((i) => ({ i, p: exps[i] / sum, s: scores[i] }));
+}
+
+// Característiques de DINOv2 per al detector: token CLS i mitjana dels tokens de les zones.
+// hidden: Float32Array [tokens × dim] (sense la dimensió del lot).
+export function clsMeanFeatures(hidden, tokens, dim) {
+  const f = new Float32Array(2 * dim);
+  for (let j = 0; j < dim; j++) f[j] = hidden[j];
+  for (let i = 1; i < tokens; i++) for (let j = 0; j < dim; j++) f[dim + j] += hidden[i * dim + j];
+  for (let j = 0; j < dim; j++) f[dim + j] /= tokens - 1;
+  return f;
 }

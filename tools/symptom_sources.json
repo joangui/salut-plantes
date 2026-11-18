@@ -1,51 +1,247 @@
 {
-  "version": 1,
+  "version": 2,
   "about": "Fotos amb llicència oberta per entrenar el detector de símptomes. iNaturalist: només fotos CC0, CC BY o CC BY-SA. PlantDoc: CC BY 4.0. Wikimedia Commons: llicències lliures.",
   "inat_licenses": "cc0,cc-by,cc-by-sa",
   "plantdoc_zip": "https://github.com/pratikkayal/PlantDoc-Dataset/archive/refs/heads/master.zip",
   "plantdoc_rules": [
-    ["spider mite", "aranya"],
-    ["powdery mildew", "oidi"],
-    ["yellow virus", "grogues"],
-    ["mosaic", null],
-    ["scab", "taques"],
-    ["rust", "taques"],
-    ["spot", "taques"],
-    ["blight", "taques"],
-    ["black rot", "taques"],
-    ["mold", "taques"]
+    [
+      "spider mite",
+      "aranya"
+    ],
+    [
+      "powdery mildew",
+      "oidi"
+    ],
+    [
+      "yellow virus",
+      "grogues"
+    ],
+    [
+      "mosaic",
+      null
+    ],
+    [
+      "scab",
+      "taques"
+    ],
+    [
+      "rust",
+      "taques"
+    ],
+    [
+      "spot",
+      "taques"
+    ],
+    [
+      "blight",
+      "taques"
+    ],
+    [
+      "black rot",
+      "taques"
+    ],
+    [
+      "mold",
+      "taques"
+    ]
   ],
   "classes": {
     "sana": {
       "inat": [
-        { "taxon": "Tracheophyta", "captive": true, "grade": "any", "n": 600 },
-        { "taxon": "Tracheophyta", "annotation": ["Leaves", "Green Leaves"], "n": 400 }
+        {
+          "taxon": "Tracheophyta",
+          "captive": true,
+          "grade": "any",
+          "n": 600
+        },
+        {
+          "taxon": "Tracheophyta",
+          "annotation": [
+            "Leaves",
+            "Green Leaves"
+          ],
+          "n": 400
+        },
+        {
+          "taxon": "Tracheophyta",
+          "captive": true,
+          "grade": "any",
+          "annotation": [
+            "Flowers and Fruits|Plant Phenology",
+            "Flowers|Flowering"
+          ],
+          "n": 300
+        }
       ],
       "plantdoc_healthy": 400
     },
-    "pugo": { "inat": [{ "taxon": "Aphididae", "n": 400 }, { "taxon": "Aphis nerii", "n": 80 }] },
-    "cotonosa": { "inat": [{ "taxon": "Pseudococcidae", "n": 320 }, { "taxon": "Icerya purchasi", "n": 120 }] },
-    "closques": { "inat": [{ "taxon": "Coccidae", "n": 220 }, { "taxon": "Diaspididae", "n": 200 }] },
-    "mosca_blanca": { "inat": [{ "taxon": "Aleyrodidae", "n": 400 }] },
-    "aranya": { "inat": [{ "taxon": "Tetranychidae", "n": 360 }], "plantdoc": 150 },
-    "oidi": { "inat": [{ "taxon": "Erysiphaceae", "n": 400 }], "plantdoc": 150 },
-    "taques": { "inat": [{ "taxon": "Pucciniales", "n": 220 }, { "taxon": "Diplocarpon", "n": 120 }], "plantdoc": 250 },
-    "galeries": { "inat": [{ "taxon": "Insecta", "annotation": ["Evidence of Presence", "Leafmine"], "n": 420 }] },
-    "erugues": {
+    "pugo": {
       "inat": [
-        { "taxon": "Lepidoptera", "annotation": ["Life Stage", "Larva"], "n": 360 },
-        { "taxon": "Cydalima perspectalis", "annotation": ["Life Stage", "Larva"], "n": 60 },
-        { "taxon": "Thaumetopoea pityocampa", "n": 60 }
+        {
+          "taxon": "Aphididae",
+          "n": 300
+        },
+        {
+          "taxon": "Aphis nerii",
+          "n": 80
+        },
+        {
+          "taxon": "Aphis fabae",
+          "n": 60
+        },
+        {
+          "taxon": "Macrosiphum rosae",
+          "n": 60
+        },
+        {
+          "taxon": "Myzus persicae",
+          "n": 40
+        }
       ]
     },
-    "cargols": { "inat": [{ "taxon": "Stylommatophora", "n": 420 }] },
-    "melassa": { "inat": [{ "taxon": "Capnodiaceae", "n": 200 }] },
-    "grogues": {
-      "inat": [{ "taxon": "Tracheophyta", "captive": true, "grade": "any", "annotation": ["Leaves", "Colored Leaves"], "n": 300 }],
-      "commons": ["Chlorosis", "Chlorosis in plants", "Leaf chlorosis", "Iron deficiency in plants", "Nitrogen deficiency in plants", "Diseases and disorders of plants due to nutritional deficiencies"],
+    "cotonosa": {
+      "inat": [
+        {
+          "taxon": "Pseudococcidae",
+          "n": 320
+        },
+        {
+          "taxon": "Icerya purchasi",
+          "n": 120
+        }
+      ]
+    },
+    "closques": {
+      "inat": [
+        {
+          "taxon": "Coccidae",
+          "n": 220
+        },
+        {
+          "taxon": "Diaspididae",
+          "n": 200
+        }
+      ]
+    },
+    "mosca_blanca": {
+      "inat": [
+        {
+          "taxon": "Aleyrodidae",
+          "n": 400
+        }
+      ]
+    },
+    "aranya": {
+      "inat": [
+        {
+          "taxon": "Tetranychidae",
+          "n": 360
+        }
+      ],
       "plantdoc": 150
     },
-    "seques": { "commons": ["Leaf scorch", "Leaf necrosis", "Sunscald", "Sunburn of plants", "Drought-stressed plants", "Drought damage to plants"] },
-    "pansida": { "commons": ["Wilting", "Wilted plants", "Wilted leaves", "Wilted flowers"] }
-  }
+    "oidi": {
+      "inat": [
+        {
+          "taxon": "Erysiphaceae",
+          "n": 200
+        },
+        {
+          "taxon": "Erysiphe alphitoides",
+          "n": 80
+        },
+        {
+          "taxon": "Podosphaera pannosa",
+          "n": 60
+        },
+        {
+          "taxon": "Erysiphe necator",
+          "n": 60
+        },
+        {
+          "taxon": "Podosphaera xanthii",
+          "n": 60
+        },
+        {
+          "taxon": "Golovinomyces",
+          "n": 60
+        }
+      ],
+      "plantdoc": 150
+    },
+    "taques": {
+      "inat": [
+        {
+          "taxon": "Pucciniales",
+          "n": 220
+        },
+        {
+          "taxon": "Diplocarpon",
+          "n": 120
+        }
+      ],
+      "plantdoc": 250
+    },
+    "galeries": {
+      "inat": [
+        {
+          "taxon": "Insecta",
+          "annotation": [
+            "Evidence of Presence",
+            "Leafmine"
+          ],
+          "n": 420
+        }
+      ]
+    },
+    "erugues": {
+      "inat": [
+        {
+          "taxon": "Lepidoptera",
+          "annotation": [
+            "Life Stage",
+            "Larva"
+          ],
+          "n": 360
+        },
+        {
+          "taxon": "Cydalima perspectalis",
+          "annotation": [
+            "Life Stage",
+            "Larva"
+          ],
+          "n": 60
+        },
+        {
+          "taxon": "Thaumetopoea pityocampa",
+          "n": 60
+        }
+      ]
+    },
+    "cargols": {
+      "inat": [
+        {
+          "taxon": "Stylommatophora",
+          "n": 420
+        }
+      ]
+    },
+    "melassa": {
+      "inat": [
+        {
+          "taxon": "Capnodiaceae",
+          "n": 200
+        }
+      ]
+    },
+    "grogues": {
+      "commons": [
+        "Chlorosis",
+        "Diseases and disorders of plants due to nutritional deficiencies"
+      ],
+      "plantdoc": 150
+    }
+  },
+  "encoder": "bioclip",
+  "created_before": "2026-11-01"
 }

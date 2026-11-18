@@ -67,11 +67,11 @@ jobs:
         uses: actions/cache@v4
         with:
           path: .symptom-cache
-          key: symptoms-${{ hashFiles('tools/symptom_sources.json') }}
-          restore-keys: symptoms-
+          key: symptoms-v2-${{ hashFiles('tools/symptom_sources.json') }}
+          restore-keys: symptoms-v2-
 
       - name: Entrena el detector de símptomes (fotos obertes)
-        run: python tools/symptom_train.py --models models --cache .symptom-cache
+        run: python tools/symptom_train.py --models models --cache .symptom-cache --compare
 
       - name: Copia les biblioteques a vendor/
         run: node tools/vendor.mjs .

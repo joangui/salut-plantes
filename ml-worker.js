@@ -1,6 +1,6 @@
 // Worker que identifica plantes al dispositiu amb ONNX Runtime Web.
 // Models: BioCLIP 2.5 destil·lat (4.271 espècies + les de la guia) i un classificador de plantes d'interior (47 classes).
-import { SIZE, toCHW, l2normalize, meanVectors, cosine, f16ToF32, f32ArrayToF16, similarities } from "./preprocess.js";
+import { SIZE, toCHW, l2normalize, meanVectors, cosine, f16ToF32, f32ArrayToF16, similarities, clsMeanFeatures } from "./preprocess.js";
 import { FLORA_PRIOR, floraPrior, rankFlora, houseProbs } from "./ranking.js";
 import { loadSignModel, detectSigns } from "./symptoms.js";
 
@@ -167,6 +167,7 @@ function plan(parts) {
   if (parts.includes("flora")) {
     files.push(floraModelPath(), manifest.flora.table, manifest.flora.names);
     if (manifest.symptoms?.model) files.push(manifest.symptoms.model);
+    if (manifest.symptoms?.encoder_model) files.push(manifest.symptoms.encoder_model);
   }
   if (parts.includes("house")) files.push(manifest.house.model, manifest.house.labels);
   return files;
@@ -220,6 +221,10 @@ async function prepare(parts, reportProgress = true) {
   }
   if (parts.includes("flora") && !signModel && manifest.symptoms?.model) {
     try {
+      // El detector pot anar amb el model botànic o amb un codificador propi (DINOv2).
+      if (manifest.symptoms.encoder_model && !sessions.signs) {
+        sessions.signs = await createSession(manifest.symptoms.encoder_model, await getBytes(manifest.symptoms.encoder_model, onBytes));
+      }
       signModel = loadSignModel(JSON.parse(new TextDecoder().decode(await getBytes(manifest.symptoms.model, onBytes))));
     } catch { signModel = null; }
   }
@@ -264,15 +269,26 @@ async function runVector(session, data) {
   return values;
 }
 
+// DINOv2: CLS + mitjana de les zones, com a l'entrenament (tools/symptom_train.py).
+async function encoderFeatures(session, rgba) {
+  const out = await session.run(inputTensor(session, toCHW(rgba, "imagenet")));
+  const name = session.outputNames.includes("last_hidden_state") ? "last_hidden_state" : session.outputNames[0];
+  const t = out[name];
+  const data = t.type === "float16" ? (t.data instanceof Uint16Array ? f16ToF32(t.data) : Float32Array.from(t.data)) : t.data;
+  return clsMeanFeatures(data, t.dims[1], t.dims[2]);
+}
+
 async function classify(images, useHouse) {
   // La primera anàlisi ho descarrega tot, perquè després l'app funcioni sense connexió.
   await prepare(["flora", "house"], true);
   const t0 = performance.now();
   const embeds = [];
   const houseRuns = [];
+  const signFeats = [];
   for (const blob of images) {
     const rgba = await pixels(blob);
     embeds.push(l2normalize(await runVector(sessions.flora, toCHW(rgba, "unit"))));
+    if (signModel && sessions.signs) signFeats.push(await encoderFeatures(sessions.signs, rgba));
     if (useHouse) houseRuns.push(houseProbs(await runVector(sessions.house, toCHW(rgba, "vit"))));
   }
   const mean = l2normalize(meanVectors(embeds));
@@ -289,7 +305,7 @@ async function classify(images, useHouse) {
     const avg = houseRuns[0].map((_, k) => houseRuns.reduce((acc, p) => acc + p[k], 0) / houseRuns.length);
     house = avg.map((p, k) => ({ label: houseLabels[k], p })).sort((a, b) => b.p - a.p).slice(0, 3);
   }
-  const signs = detectSigns(signModel, embeds);
+  const signs = detectSigns(signModel, sessions.signs ? signFeats : embeds);
   return { backend, flora, perPhoto, minPair, house, signs, signsReady: !!signModel, ms: Math.round(performance.now() - t0) };
 }
 
