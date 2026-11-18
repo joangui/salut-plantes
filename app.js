@@ -4,6 +4,7 @@ import {
   CARE_GROUPS, plantInfo, pickerOptions,
 } from "./kb.js";
 import { SETTINGS, listJoin, mergeCandidates, buildGemmaPrompt, parseGemma, compose } from "./logic.js";
+import { SIGNS } from "./symptoms.js";
 
 const MAX_PHOTOS = 3;
 const MAX_EDGE = 1600;
@@ -538,6 +539,55 @@ function mount(photos, illustration) {
   return m;
 }
 
+// D'on surt cada problema: la foto, la IA o el que has marcat.
+function sourceText(from) {
+  const parts = { foto: "es veu a la foto", ia: "ho ha vist la IA", tu: "ho has marcat tu" };
+  const t = listJoin(from.map((f) => parts[f]).filter(Boolean));
+  return t ? t.charAt(0).toUpperCase() + t.slice(1) + "." : "";
+}
+
+function basisText(report) {
+  const { run } = report;
+  const what = [run.signsReady && "de les fotos", run.ai && "de la IA", run.symptoms.length && "del que has marcat"].filter(Boolean);
+  if (!what.length) return "Sense detector de símptomes: la valoració no ha pogut mirar les fotos.";
+  return `Valoració a partir ${listJoin(what)}.${run.signsReady ? " Si alguna cosa de les fotos no hi és, treu-la i l'informe s'actualitza." : ""}`;
+}
+
+// Torna a fer l'informe amb els canvis de la persona (planta triada, símptomes tret o confirmats).
+function refresh(sheet, run, message) {
+  const next = compose(run, run.forcedSci || null);
+  state.last = next;
+  sheet.replaceWith(renderSheet(next));
+  if (message) setStatus(message);
+}
+
+// El que es veu a les fotos, amb botons per corregir-ho.
+function seenBox(report) {
+  const { run } = report;
+  if (!report.seen.length && !report.maybe.length) return null;
+  const sheetOf = (btn) => btn.closest(".sheet");
+  const items = [
+    ...report.seen.map((x) => el("li", { "data-level": "sure" },
+      el("span", null, SIGNS[x.id].label, run.photos.length > 1 ? el("span", { class: "muted" }, ` · foto ${x.photo + 1}`) : null),
+      el("button", { type: "button", class: "seen-act", "aria-label": `No hi ha ${SIGNS[x.id].label}`, onclick: (e) => {
+        run.dismissed = [...new Set([...(run.dismissed || []), x.id])];
+        run.confirmed = (run.confirmed || []).filter((c) => c !== x.id);
+        refresh(sheetOf(e.currentTarget), run, `Tret de l'informe: ${SIGNS[x.id].label}.`);
+      } }, "No n'hi ha"))),
+    ...report.maybe.map((x) => el("li", { "data-level": "maybe" },
+      el("span", null, `Potser ${SIGNS[x.id].label}`),
+      el("button", { type: "button", class: "seen-act", "aria-label": `Sí que hi ha ${SIGNS[x.id].label}`, onclick: (e) => {
+        run.confirmed = [...new Set([...(run.confirmed || []), x.id])];
+        refresh(sheetOf(e.currentTarget), run, `Afegit a l'informe: ${SIGNS[x.id].label}.`);
+      } }, "Sí, n'hi ha"),
+      el("button", { type: "button", class: "seen-act", "aria-label": `No hi ha ${SIGNS[x.id].label}`, onclick: (e) => {
+        run.dismissed = [...new Set([...(run.dismissed || []), x.id])];
+        refresh(sheetOf(e.currentTarget), run);
+      } }, "No"))),
+  ];
+  return el("div", { class: "seen-box" }, el("p", { class: "seen-k" }, "Vist a les fotos"), el("ul", { class: "seen" }, items));
+}
+
 function renderSheet(report, opts = {}) {
   const { run, info, dx } = report;
   const example = !!opts.example;
@@ -557,7 +607,7 @@ function renderSheet(report, opts = {}) {
     run.photos.length > 1 ? field("Fotos", listJoin(run.photos.map((_, i) => String(i + 1)))) : null,
     run.place ? field("Lloc", run.place) : null,
     field("Revisada", example ? "Informe d'exemple" : `al dispositiu, ${run.dateLabel}`),
-    field("Mètode", example ? "—" : run.ai ? "IA Gemma 4 i model botànic" : "Model botànic i símptomes"),
+    field("Mètode", example ? "—" : [run.ai && "IA Gemma 4", "model botànic", run.signsReady && "detector de símptomes"].filter(Boolean).join(", ").replace(/^./, (c) => c.toUpperCase())),
   );
   const fix = example ? null : el("button", { type: "button", class: "link-btn fix-btn", onclick: () => openPicker(sheet, report) }, "No és aquesta planta?");
   const det = el("div", { class: "det" }, el("span", { class: "stamp" }, stampText), title, common, fields, fix);
@@ -568,8 +618,9 @@ function renderSheet(report, opts = {}) {
   const healthText = el("div", { class: "health-text" },
     el("p", { class: "status-pill" }, icon(st.icon), st.label),
     el("p", { class: "summary" }, report.summary),
+    example ? null : seenBox(report),
     el("p", { class: "pests", "data-p": report.pests }, icon(pestsState[0]), el("span", null, el("strong", null, pestsState[1]), report.pestNote ? " " + report.pestNote : "")),
-    el("p", { class: "basis" }, example ? "" : run.ai ? "Valoració de la IA a partir de les fotos i dels símptomes marcats." : "Valoració a partir dels símptomes que has marcat: el model bàsic identifica la planta, però no n'avalua la salut a la foto."),
+    el("p", { class: "basis" }, example ? "" : basisText(report)),
   );
   sheet.append(el("div", { class: "health" }, renderGauge(report.score), healthText));
 
@@ -593,11 +644,11 @@ function renderSheet(report, opts = {}) {
           el("span", { class: "tag" }, KIND[p.kind]),
           el("span", { class: "tag" }, icon(sev.icon), el("span", { class: "sr" }, "Gravetat: "), sev.label)),
         el("p", { class: "issue-ev" }, p.explain),
-        p.source === "ai" ? el("p", { class: "issue-src" }, "Ho ha vist la IA a la foto.") : p.source === "both" ? el("p", { class: "issue-src" }, "Ho ha vist la IA i ho has marcat tu.") : null);
+        p.from?.length ? el("p", { class: "issue-src" }, sourceText(p.from)) : null);
       li.style.setProperty("--st", `var(--${sev.token})`);
       return li;
     }))
-    : el("p", { class: "empty" }, run.ai ? "La IA no hi veu cap problema." : run.symptoms.length ? "Els símptomes marcats no apunten a cap problema concret." : "No has marcat cap símptoma.");
+    : el("p", { class: "empty" }, report.checked ? "A les fotos no s'hi veu cap problema." : run.symptoms.length ? "Els símptomes marcats no apunten a cap problema concret." : "No s'han pogut revisar les fotos.");
   sheet.append(el("section", { class: "part" }, el("h4", null, "Què li passa"), issues));
 
   // Què cal fer
@@ -636,6 +687,7 @@ function openPicker(sheet, report) {
     const hit = opts.find((o) => o.label.toLowerCase() === v.toLowerCase())
       || opts.find((o) => o.label.toLowerCase().includes(v.toLowerCase()));
     const sci = hit ? hit.sci : v;
+    report.run.forcedSci = sci;
     const next = compose(report.run, sci);
     state.last = next;
     sheet.replaceWith(renderSheet(next));
@@ -726,6 +778,9 @@ async function analyze() {
     bar?.done();
     run.cands = mergeCandidates(res, run.setting);
     run.backend = res.backend;
+    run.signs = res.signs || [];
+    run.signsReady = !!res.signsReady;
+    if (!run.signsReady) note("Encara no tens el detector de símptomes: connecta't un cop perquè es descarregui. Mentrestant, la salut només es valora amb el que marques.");
     if (photos.length > 1 && res.minPair < 0.55) {
       const names = res.perPhoto.map((p, i) => { const inf = plantInfo(p.sci); return `foto ${i + 1}: ${inf.ca || p.sci}`; });
       note(`Les fotos podrien ser de plantes diferents (${names.join("; ")}). L'informe les tracta com una sola planta; per a plantes diferents, analitza-les per separat.`);
@@ -790,9 +845,10 @@ function renderExample() {
   resetReport();
   $("#example-note").hidden = false;
   const run = {
-    id: "exemple", photos: [], symptoms: ["pugo", "arrugades", "melassa"], setting: "pot",
+    id: "exemple", photos: [], symptoms: [], setting: "pot",
     place: "Balcó assolellat · A fora, en test", date: new Date(), dateLabel: todayLabel(),
-    cands: [{ sci: "Citrus × limon", p: 0.8 }], ai: null,
+    cands: [{ sci: "Citrus × limon", p: 0.8 }], ai: null, signsReady: true,
+    signs: [{ id: "pugo", p: 0.97, level: "sure", photo: 0 }, { id: "melassa", p: 0.91, level: "sure", photo: 0 }],
   };
   const report = compose(run);
   report.conf = "high";

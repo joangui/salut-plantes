@@ -17,7 +17,7 @@ concurrency:
 jobs:
   build:
     runs-on: ubuntu-latest
-    timeout-minutes: 40
+    timeout-minutes: 60
     steps:
       - uses: actions/checkout@v4
 
@@ -33,7 +33,7 @@ jobs:
           python-version: "3.12"
 
       - name: Dependències de Python
-        run: pip install numpy playwright
+        run: pip install numpy playwright onnxruntime pillow scikit-learn
 
       - name: Memòria cau dels models
         uses: actions/cache@v4
@@ -63,6 +63,16 @@ jobs:
       - name: Afegeix a la taula les plantes de la guia que hi falten
         run: python tools/extend_taxa.py --models models --species .kb-species.json --cache .taxa-cache
 
+      - name: Memòria cau del detector de símptomes
+        uses: actions/cache@v4
+        with:
+          path: .symptom-cache
+          key: symptoms-${{ hashFiles('tools/symptom_sources.json') }}
+          restore-keys: symptoms-
+
+      - name: Entrena el detector de símptomes (fotos obertes)
+        run: python tools/symptom_train.py --models models --cache .symptom-cache
+
       - name: Copia les biblioteques a vendor/
         run: node tools/vendor.mjs .
 
@@ -71,6 +81,9 @@ jobs:
 
       - name: Identificació amb fotos reals
         run: node tools/ci_light.mjs
+
+      - name: Símptomes amb fotos reals
+        run: node tools/ci_symptoms.mjs
 
       - name: Munta el lloc
         run: python tools/assemble.py _site

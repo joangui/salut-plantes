@@ -95,6 +95,19 @@ h1 { margin: 0; font: 400 clamp(2.3rem, 1.5rem + 2.6vw, 3.5rem)/1 var(--font-dis
 .label .opt { font-weight: 400; letter-spacing: .04em; text-transform: none; margin-left: .5em; }
 .label-row { display: flex; align-items: baseline; gap: 10px; }
 .label-row .link-btn { margin-left: auto; font-size: .82rem; }
+.more > summary { display: flex; align-items: baseline; gap: 8px; cursor: pointer; list-style: none; }
+.more > summary::-webkit-details-marker { display: none; }
+.more > summary::before { content: "+"; width: 1ch; font: 700 1rem/1 var(--font-label); color: var(--stamp); }
+.more[open] > summary::before { content: "−"; }
+.more > summary:focus-visible { outline: 2px solid var(--stamp); outline-offset: 3px; border-radius: 2px; }
+.more-body { display: grid; gap: 12px; margin-top: 12px; }
+.seen-box { margin: 0; display: grid; gap: 6px; }
+.seen-box .seen-k { margin: 0; font: 700 .72rem/1.3 var(--font-label); letter-spacing: .12em; text-transform: uppercase; color: var(--ink-soft); }
+.seen { display: flex; flex-wrap: wrap; gap: 6px 8px; margin: 0; padding: 0; list-style: none; }
+.seen li { display: inline-flex; align-items: center; gap: 8px; border: 1px solid var(--rule); border-radius: 999px; padding: 4px 6px 4px 12px; font-size: .9rem; background: var(--sheet); }
+.seen li[data-level="maybe"] { border-style: dashed; color: var(--ink-soft); }
+.seen .seen-act { border: 0; background: none; padding: 2px 6px; border-radius: 999px; font: 600 .76rem/1.2 var(--font-body); color: var(--stamp); text-decoration: underline; text-underline-offset: 2px; }
+.seen .seen-act:hover { background: color-mix(in srgb, var(--stamp) 10%, transparent); }
 
 /* Entrada */
 .intake { display: grid; gap: 28px; min-width: 0; }
@@ -237,7 +250,7 @@ input[type="text"]:focus-visible { outline: 2px solid var(--stamp); outline-offs
   .adjust { grid-template-columns: 1fr; gap: 8px; }
   .health { gap: 12px 16px; align-items: center; }
   .health-text { display: contents; }
-  .health .summary, .health .pests, .health .obs, .health .basis { grid-column: 1 / -1; }
+  .health .summary, .health .pests, .health .obs, .health .basis, .health .seen-box { grid-column: 1 / -1; }
   .gauge { width: 84px; height: 84px; }
 }
 .part { display: grid; gap: 12px; padding-top: 20px; border-top: 1px solid var(--rule); }
@@ -338,7 +351,7 @@ input[type="text"]:focus-visible { outline: 2px solid var(--stamp); outline-offs
 <div class="wrap">
   <header class="masthead">
     <h1>Salut de les plantes</h1>
-    <p class="lede">Fes fins a tres fotos d'una planta o d'un arbre. L'app la identifica, en revisa la salut i et diu què cal fer. Tot passa al teu dispositiu, també sense connexió.</p>
+    <p class="lede">Fes fins a tres fotos d'una planta o d'un arbre. L'app la identifica, hi busca plagues, fongs i fulles malmeses i et diu què cal fer. Tot passa al teu dispositiu, també sense connexió.</p>
     <div class="statusbar">
       <span class="pill" id="net-chip"></span>
       <span class="pill" id="models-chip"></span>
@@ -353,18 +366,21 @@ input[type="text"]:focus-visible { outline: 2px solid var(--stamp); outline-offs
       <div class="block">
         <h2 class="label">Fotos <span class="opt">fins a 3</span></h2>
         <div class="slots" id="slots"></div>
-        <p class="hint">Fes les fotos d'una sola planta: sencera, una fulla de prop i qualsevol dany que hi vegis. Per a una altra planta, fes una anàlisi nova.</p>
+        <p class="hint">Fes les fotos d'una sola planta: una de sencera i, de prop, les fulles o els danys que vegis (també el revers de les fulles). Per a una altra planta, fes una anàlisi nova.</p>
         <p class="msg" id="intake-msg" role="status" aria-live="polite" hidden></p>
         <input type="file" id="file-input" accept="image/*" multiple hidden>
       </div>
 
-      <div class="block">
-        <div class="label-row">
-          <h2 class="label">Què hi veus? <span class="opt" id="sym-count">opcional</span></h2>
-          <button type="button" class="link-btn" id="sym-clear" hidden>Desmarca-ho tot</button>
+      <details class="block more" id="sym-box">
+        <summary><h2 class="label">El que no surt a la foto <span class="opt" id="sym-count">opcional</span></h2></summary>
+        <div class="more-body">
+          <div class="label-row">
+            <p class="hint">Els símptomes es busquen a les fotos. Aquí pots afegir el que no s'hi veu, com la terra molt molla, mosquits o que no creix.</p>
+            <button type="button" class="link-btn" id="sym-clear" hidden>Desmarca-ho tot</button>
+          </div>
+          <div id="symptoms"></div>
         </div>
-        <div id="symptoms"></div>
-      </div>
+      </details>
 
       <div class="block">
         <h2 class="label">Sobre la planta <span class="opt">opcional</span></h2>
@@ -384,7 +400,7 @@ input[type="text"]:focus-visible { outline: 2px solid var(--stamp); outline-offs
 
       <div class="block">
         <div class="ai-box">
-          <label class="check" for="ai-toggle"><input type="checkbox" id="ai-toggle"><span>Anàlisi avançada amb IA<small>La IA Gemma 4 mira les fotos i en valora la salut. Funciona al dispositiu, sense connexió un cop descarregada. Només en ordinadors.</small></span></label>
+          <label class="check" for="ai-toggle"><input type="checkbox" id="ai-toggle"><span>Anàlisi avançada amb IA<small>Una segona opinió: la IA Gemma 4 també mira les fotos i comprova la planta. Funciona al dispositiu, sense connexió un cop descarregada. Només en ordinadors.</small></span></label>
           <p class="ai-status" id="ai-status"></p>
           <div class="progress" id="ai-progress" hidden></div>
         </div>
@@ -413,7 +429,7 @@ input[type="text"]:focus-visible { outline: 2px solid var(--stamp); outline-offs
   <footer class="how" id="com-funciona">
     <h2>Com funciona</h2>
     <p>La identificació la fa un model botànic obert, BioCLIP 2.5 destil·lat per a mòbils, que compara la foto amb 4.372 espècies i dona preferència a les plantes de la guia, amb l'ajuda d'un segon model per a 47 plantes d'interior. En proves amb fotos reals encerta a la primera unes 2 de cada 3 plantes; si s'equivoca, corregeix-la amb «No és aquesta planta?».</p>
-    <p>Sense la IA avançada, la salut es valora a partir dels símptomes que marques, i els consells surten d'una guia de cures i tractaments pensada per a Catalunya. Amb la IA avançada, el model Gemma 4 de Google mira també les fotos: comprova la planta i marca els símptomes que hi veu. El text de l'informe sempre surt de la guia.</p>
+    <p>La salut també es mira a les fotos: un detector entrenat amb fotos obertes d'iNaturalist i de PlantDoc hi busca plagues (pugó, cotonet, cotxinilla, mosca blanca, aranya vermella, erugues, cargols, minadors), fongs (oïdi, taques) i fulles malmeses. Els consells surten d'una guia de cures i tractaments pensada per a Catalunya. Amb la IA avançada, el model Gemma 4 de Google mira també les fotos i comprova la planta.</p>
     <p>Els models es descarreguen un sol cop i es desen al navegador. A partir d'aquí, l'app funciona sense connexió i res surt del dispositiu.</p>
     <div class="how-row"><span id="storage"></span><button type="button" class="link-btn" id="clear-data">Esborra els models descarregats</button></div>
     <p>Models: <a href="https://huggingface.co/crazedcodernate/bioclip-2.5-mobile-fastvit">BioCLIP 2.5 mobile</a> (MIT), <a href="https://huggingface.co/onnx-community/house-plant-image-detection-ONNX">plantes d'interior</a> (Apache 2.0) i <a href="https://huggingface.co/onnx-community/gemma-4-E2B-it-ONNX">Gemma 4 E2B</a> (Apache 2.0). Funcionen amb ONNX Runtime Web i Transformers.js.</p>

@@ -120,10 +120,26 @@ export const PHOTOS = [
   ["Ricinus", "Ricinus communis", "ground"],
 ];
 
-export async function fetchPhotos(dir = ".test-photos") {
+// Fotos de plagues, fongs i fulles malmeses: [article, classe del detector esperada]
+export const SYMPTOM_PHOTOS = [
+  ["Aphid", "pugo"], ["Aphis_nerii", "pugo"], ["Green_peach_aphid", "pugo"], ["Macrosiphum_rosae", "pugo"],
+  ["Mealybug", "cotonosa"], ["Planococcus_citri", "cotonosa"], ["Cottony_cushion_scale", "cotonosa"],
+  ["Scale_insect", "closques"], ["Coccus_hesperidum", "closques"], ["Saissetia_oleae", "closques"],
+  ["Whitefly", "mosca_blanca"], ["Bemisia_tabaci", "mosca_blanca"], ["Trialeurodes_vaporariorum", "mosca_blanca"],
+  ["Tetranychus_urticae", "aranya"], ["Spider_mite", "aranya"],
+  ["Powdery_mildew", "oidi"], ["Erysiphe_necator", "oidi"], ["Podosphaera_leucotricha", "oidi"],
+  ["Diplocarpon_rosae", "taques"], ["Phragmidium_mucronatum", "taques"], ["Rust_(fungus)", "taques"], ["Leaf_spot", "taques"], ["Septoria_lycopersici", "taques"],
+  ["Leaf_miner", "galeries"], ["Phyllocnistis_citrella", "galeries"], ["Cameraria_ohridella", "galeries"],
+  ["Caterpillar", "erugues"], ["Pine_processionary", "erugues"], ["Cydalima_perspectalis", "erugues"],
+  ["Cornu_aspersum", "cargols"], ["Slug", "cargols"], ["Theba_pisana", "cargols"],
+  ["Sooty_mold", "melassa"],
+  ["Chlorosis", "grogues"], ["Leaf_scorch", "seques"], ["Wilting", "pansida"],
+];
+
+export async function fetchPhotos(dir = ".test-photos", list = PHOTOS) {
   mkdirSync(dir, { recursive: true });
   const out = [];
-  for (const [title, expected, setting] of PHOTOS) {
+  for (const [title, expected, setting] of list) {
     const file = join(dir, `${title.replace(/[^\w-]/g, "_")}.jpg`);
     if (!existsSync(file)) {
       try {

@@ -1,7 +1,8 @@
 // Lògica pura de l'informe (sense DOM): la fan servir l'app i els tests de Node.
+import { SIGNS, signSymptoms } from "./symptoms.js";
 import {
   SYMPTOMS, SYMPTOM_BY_ID, STATUS, HOUSEPLANT_SCI,
-  plantInfo, normSci, diagnose, basicSummary, scoreToStatus,
+  plantInfo, normSci, diagnose, scoreToStatus,
 } from "./kb.js";
 
 export const SETTINGS = { indoors: "A dins de casa", pot: "A fora, en test", ground: "A fora, al terra" };
@@ -169,20 +170,26 @@ export function parseGemma(text) {
   };
 }
 
-function aiSummary({ problems, aiSymptoms, health }) {
-  if (!aiSymptoms.length && !problems.length) {
-    return health && health !== "healthy"
-      ? "La IA hi veu algun problema, però cap dels símptomes que coneix la guia. Revisa la planta de prop i marca el que hi vegis."
-      : "La IA no hi veu cap símptoma de malaltia ni de plagues: la planta sembla sana.";
+const PEST_SIGNS = new Set(["pugo", "cotonosa", "closques", "mosca_blanca", "aranya", "galeries", "erugues", "cargols"]);
+const lower1 = (t) => t.charAt(0).toLowerCase() + t.slice(1);
+
+// Resum de salut, sempre amb text de la guia en català.
+function healthSummary({ problems, seen, userCount, checked, aiHealth }) {
+  if (!seen.length && !problems.length) {
+    if (userCount) return "Els símptomes que has marcat no apunten a cap problema concret. Vigila com evoluciona la planta els propers dies.";
+    if (aiHealth && aiHealth !== "healthy") return "La IA hi veu algun problema, però cap dels que coneix la guia. Mira la planta de prop i marca el que hi vegis.";
+    if (checked) return "A les fotos no s'hi veuen plagues, fongs ni fulles malmeses: la planta sembla sana. Revisa de tant en tant el revers de les fulles i els brots tendres.";
+    return "Sense poder revisar les fotos, la valoració només té en compte el que has marcat.";
   }
-  const seen = listJoin(aiSymptoms.map((id) => SYMPTOM_BY_ID[id].label.toLowerCase()));
   const parts = [];
-  if (aiSymptoms.length) parts.push(`A les fotos, la IA hi veu: ${seen}.`);
+  if (seen.length) parts.push(`A les fotos s'hi veu: ${listJoin(seen)}.`);
   if (problems.length) {
     const names = listJoin(problems.slice(0, 3).map((p) => p.name.toLowerCase()));
     const worst = problems[0].severity;
     const lead = worst === "high" ? "Cal actuar de pressa" : worst === "moderate" ? "Convé actuar aquesta setmana" : "No és greu, però convé corregir-ho";
-    parts.push(`El més probable és ${names}. ${lead}: comença pels passos marcats com a «Ara».`);
+    parts.push(`${seen.length ? "El" : "Pel que has marcat, el"} més probable és ${names}. ${lead}: comença pels passos marcats com a «Ara».`);
+  } else {
+    parts.push("No apunta a cap problema concret: vigila com evoluciona.");
   }
   return parts.join(" ");
 }
@@ -227,38 +234,58 @@ export function compose(run, forcedSci = null) {
     .slice(0, 2)
     .map((c) => { const i = plantInfo(c.sci); return i.ca ? `${i.ca} (${i.sci})` : c.sci; });
 
-  // Salut
+  // Salut: el que es veu a les fotos, el que diu la IA (si n'hi ha) i el que has marcat tu.
+  const dismissed = run.dismissed || [];
+  const confirmed = run.confirmed || [];
+  const signs = (run.signs || [])
+    .filter((x) => !dismissed.includes(x.id))
+    .map((x) => (confirmed.includes(x.id) ? { ...x, level: "sure" } : x));
+  const sure = signs.filter((x) => x.level === "sure");
+  const maybe = signs.filter((x) => x.level === "maybe");
+  const photoSymptoms = signSymptoms(sure);
   const aiSymptoms = ai?.symptoms || [];
-  const all = [...new Set([...run.symptoms, ...aiSymptoms])];
+  const userSymptoms = run.symptoms || [];
+  const all = [...new Set([...userSymptoms, ...photoSymptoms, ...aiSymptoms])];
   const dx = diagnose({ symptoms: all, group: info.group, date: run.date });
-  const fromUser = new Set(diagnose({ symptoms: run.symptoms, group: info.group, date: run.date }).problems.map((p) => p.code));
-  const fromAi = new Set(diagnose({ symptoms: aiSymptoms, group: info.group, date: run.date }).problems.map((p) => p.code));
-  for (const p of dx.problems) p.source = fromUser.has(p.code) ? (fromAi.has(p.code) ? "both" : "symptoms") : "ai";
+  const codes = (list) => new Set(list.length ? diagnose({ symptoms: list, group: info.group, date: run.date }).problems.map((p) => p.code) : []);
+  const fromPhoto = codes(photoSymptoms), fromAi = codes(aiSymptoms), fromUser = codes(userSymptoms);
+  for (const p of dx.problems) {
+    p.from = [fromPhoto.has(p.code) && "foto", fromAi.has(p.code) && "ia", fromUser.has(p.code) && "tu"].filter(Boolean);
+    if (!p.from.length) p.from = [photoSymptoms.length && "foto", aiSymptoms.length && "ia", userSymptoms.length && "tu"].filter(Boolean);
+  }
 
   let score = dx.score;
   if (ai?.health && STATUS_MAX[ai.health] != null) score = Math.min(score, STATUS_MAX[ai.health]);
   const status = scoreToStatus(score);
 
-  const pestNames = listJoin(dx.pests.map((p) => p.name.toLowerCase()));
+  // Plagues
+  const checked = !!run.signsReady || !!ai;
+  const maybePests = maybe.filter((x) => PEST_SIGNS.has(x.id));
   let pests, pestNote;
   if (dx.pests.length) {
     pests = "found";
-    pestNote = ai && dx.pests.some((p) => p.source !== "symptoms") ? `La IA hi veu: ${pestNames}.` : `Pel que has marcat: ${pestNames}.`;
-  } else if (ai) {
-    pests = ai.pests;
-    pestNote = {
-      found: "La IA hi veu bestioles, però no sap de quina plaga es tracta: revisa el revers de les fulles i els brots tendres.",
-      none_seen: "La IA no hi veu insectes ni rastres de plagues.",
-      unclear: "Amb aquestes fotos no se'n pot estar segur: revisa el revers de les fulles i els brots tendres.",
-    }[ai.pests];
+    const names = listJoin(dx.pests.map((p) => p.name.toLowerCase()));
+    const by = dx.pests.some((p) => p.from.includes("foto")) ? "A les fotos s'hi veu" : dx.pests.some((p) => p.from.includes("ia")) ? "La IA hi veu" : "Pel que has marcat";
+    pestNote = `${by}: ${names}.`;
+  } else if (maybePests.length || ai?.pests === "found") {
+    pests = "unclear";
+    pestNote = maybePests.length
+      ? `Potser hi ha ${listJoin(maybePests.map((x) => SIGNS[x.id].label))}: mira-ho de prop, sobretot el revers de les fulles.`
+      : "La IA hi veu bestioles, però no sap de quina plaga es tracta: revisa el revers de les fulles i els brots tendres.";
+  } else if (checked) {
+    pests = "none_seen";
+    pestNote = "A les fotos no se'n veuen. Revisa també el revers de les fulles i els brots tendres, que és on s'amaguen.";
   } else {
     pests = "unmarked";
     pestNote = "Revisa el revers de les fulles i els brots tendres, que és on s'amaguen.";
   }
 
+  // Què es veu a les fotos: primer el detector i després el que hi afegeix la IA.
+  const seen = sure.map((x) => SIGNS[x.id].label);
+  const covered = new Set(photoSymptoms);
+  for (const id of aiSymptoms) if (!covered.has(id)) seen.push(lower1(SYMPTOM_BY_ID[id].label));
+
   const displayName = info.ca || info.genusCa || "";
-  const summary = ai
-    ? aiSummary({ problems: dx.problems, aiSymptoms, health: ai.health })
-    : basicSummary({ name: displayName, problems: dx.problems, symptomsCount: run.symptoms.length });
-  return { run, sci: info.sci || sci, info, displayName, conf, alts, dx, score, status, pests, pestNote, summary };
+  const summary = healthSummary({ problems: dx.problems, seen, userCount: userSymptoms.length, checked, aiHealth: ai?.health });
+  return { run, sci: info.sci || sci, info, displayName, conf, alts, dx, score, status, pests, pestNote, summary, seen: sure, maybe, checked };
 }

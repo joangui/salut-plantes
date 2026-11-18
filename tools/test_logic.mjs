@@ -2,6 +2,7 @@
 import assert from "node:assert/strict";
 import { SYMPTOMS, PROBLEMS, CARE_GROUPS, PLANTS, GENUS, HOUSEPLANT_SCI, plantInfo, diagnose, pickerOptions } from "../kb.js";
 import { mergeCandidates, candidateConfidence, parseGemma, buildGemmaPrompt, compose, firstJsonObject } from "../logic.js";
+import { SIGNS, loadSignModel, signProbs, detectSigns, signSymptoms } from "../symptoms.js";
 
 let n = 0;
 function test(name, fn) { fn(); n++; console.log(`ok ${n} - ${name}`); }
@@ -120,11 +121,11 @@ test("informe amb IA: candidat, símptomes vistos i text en català", () => {
   assert.equal(r.info.group, "citrics");
   assert.equal(r.pests, "found");
   assert.match(r.pestNote, /La IA hi veu: pugó/);
-  assert.match(r.summary, /^A les fotos, la IA hi veu: insectes petits/);
+  assert.match(r.summary, /^A les fotos s'hi veu: insectes petits verds o negres als brots i fulles velles/);
   assert.ok(r.score <= 79);
-  const src = Object.fromEntries(r.dx.problems.map((p) => [p.code, p.source]));
-  assert.equal(src.pugo, "ai");
-  assert.equal(src.fumagina, "symptoms");
+  const src = Object.fromEntries(r.dx.problems.map((p) => [p.code, p.from.join("+")]));
+  assert.equal(src.pugo, "ia");
+  assert.equal(src.fumagina, "tu");
   const fixed = compose(run, "Olea europaea");
   assert.equal(fixed.displayName, "Olivera");
   assert.equal(fixed.conf, "user");
@@ -148,7 +149,7 @@ test("informe amb IA: cap candidat encaixa i la IA en proposa un altre", () => {
   assert.equal(pick('{"candidate":1,"id_confidence":"low"}').conf, "medium");
   assert.equal(pick('{"candidate":2,"id_confidence":"medium"}').sci, "Persea americana");
   assert.equal(pick('{"candidate":2,"id_confidence":"medium"}').conf, "high");
-  assert.equal(compose(run).summary, "La IA no hi veu cap símptoma de malaltia ni de plagues: la planta sembla sana.");
+  assert.match(compose(run).summary, /^A les fotos no s'hi veuen plagues, fongs ni fulles malmeses/);
 });
 
 test("el prompt inclou candidats, codis i context", () => {
@@ -160,6 +161,48 @@ test("el prompt inclou candidats, codis i context", () => {
   assert.match(p, /The 2 photos show/);
   assert.match(p, /owner also reports: aphids/);
   assert.ok(!/no_creix/.test(p));
+});
+
+test("detector de símptomes: probabilitats, nivells i la foto on es veu", () => {
+  // Model de joguina: 3 dimensions, classe 1 = pugó, classe 2 = taques.
+  const model = loadSignModel({ classes: ["sana", "pugo", "taques"], W: [[0, 0, 0], [10, 0, 0], [0, 10, 0]], b: [0, 0, 0], sure: { pugo: 0.9, taques: 0.9 }, maybe: { pugo: 0.5, taques: 0.5 } });
+  const p = signProbs(model, [1, 0, 0]);
+  assert.ok(Math.abs(p.reduce((a, b) => a + b, 0) - 1) < 1e-9);
+  assert.ok(p[1] > 0.99);
+  const signs = detectSigns(model, [[0, 0, 0.1], [1, 0, 0], [0, 0.05, 0]]);
+  assert.deepEqual(signs.map((x) => [x.id, x.level, x.photo]), [["pugo", "sure", 1]]);
+  const weak = detectSigns(model, [[0, 0.12, 0]]);
+  assert.deepEqual(weak.map((x) => [x.id, x.level]), [["taques", "maybe"]]);
+  assert.deepEqual(detectSigns(null, [[1, 0, 0]]), []);
+  assert.deepEqual(signSymptoms([...signs, ...weak]), ["pugo"]);
+  assert.deepEqual(signSymptoms(signs, ["pugo"]), []);
+  for (const [id, sg] of Object.entries(SIGNS)) for (const sym of sg.symptoms) assert.ok(SYMPTOMS.some((x) => x.id === sym), `${id} → ${sym}`);
+});
+
+test("informe amb el que es veu a les fotos", () => {
+  const base = { cands: [{ sci: "Citrus × limon", p: 0.8 }], symptoms: [], date: new Date(2026, 10, 18), signsReady: true };
+  const clean = compose({ ...base, signs: [] });
+  assert.match(clean.summary, /^A les fotos no s'hi veuen plagues/);
+  assert.equal(clean.pests, "none_seen");
+  assert.equal(clean.status, "healthy");
+  const run = { ...base, signs: [{ id: "pugo", p: 0.95, level: "sure", photo: 0 }, { id: "closques", p: 0.4, level: "maybe", photo: 1 }] };
+  const r = compose(run);
+  assert.match(r.summary, /^A les fotos s'hi veu: pugó\. El més probable és pugó/);
+  assert.equal(r.pests, "found");
+  assert.match(r.pestNote, /^A les fotos s'hi veu: pugó/);
+  assert.deepEqual(r.dx.problems.find((p) => p.code === "pugo").from, ["foto"]);
+  assert.deepEqual(r.maybe.map((x) => x.id), ["closques"]);
+  // La persona diu que no n'hi ha: desapareix de l'informe.
+  const dismissed = compose({ ...run, dismissed: ["pugo"] });
+  assert.ok(!dismissed.dx.problems.some((p) => p.code === "pugo"));
+  assert.equal(dismissed.pests, "unclear");
+  assert.match(dismissed.pestNote, /Potser hi ha cotxinilla/);
+  // Confirma el «potser»: passa a comptar.
+  const confirmed = compose({ ...run, confirmed: ["closques"] });
+  assert.ok(confirmed.dx.problems.some((p) => p.code === "closca"));
+  // Foto i persona alhora
+  const both = compose({ ...run, symptoms: ["pugo"] });
+  assert.deepEqual(both.dx.problems.find((p) => p.code === "pugo").from, ["foto", "tu"]);
 });
 
 test("el selector té noms únics i ordenats", () => {

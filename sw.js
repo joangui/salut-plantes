@@ -1,6 +1,6 @@
 // Service worker: fa que l'app funcioni sense connexió.
 // L'app es desa al primer accés; els models es desen la primera vegada que es fan servir.
-const VERSION = "2026-11-18.4";
+const VERSION = "2026-11-18.5";
 const SHELL_CACHE = `salut-plantes-shell-${VERSION}`;
 const MODEL_CACHE = "salut-plantes-models-v1";
 
@@ -12,6 +12,7 @@ const SHELL = [
   "logic.js",
   "preprocess.js",
   "ranking.js",
+  "symptoms.js",
   "ml-worker.js",
   "gemma-worker.js",
   "manifest.webmanifest",
@@ -61,6 +62,22 @@ async function cacheFirst(request, cacheName) {
   return res;
 }
 
+// La llista de models: de la xarxa si n'hi ha (per veure'n de nous), si no de la memòria cau.
+async function networkFirst(request, cacheName) {
+  const cache = await caches.open(cacheName);
+  try {
+    const ctrl = new AbortController();
+    const timer = setTimeout(() => ctrl.abort(), 5000);
+    const res = await fetch(request, { cache: "no-cache", signal: ctrl.signal });
+    clearTimeout(timer);
+    if (res.ok) cache.put(request, res.clone()).catch(() => {});
+    return res;
+  } catch {
+    const hit = await cache.match(request, { ignoreSearch: true });
+    return hit || new Response("Sense connexió", { status: 503, headers: { "content-type": "text/plain; charset=utf-8" } });
+  }
+}
+
 // Respon de seguida amb la versió desada i l'actualitza en segon pla.
 async function staleWhileRevalidate(event, cacheName, fallbackKey) {
   const cache = await caches.open(cacheName);
@@ -83,7 +100,9 @@ self.addEventListener("fetch", (event) => {
   if (req.method !== "GET") return;
   const url = new URL(req.url);
   if (url.origin !== self.location.origin) return; // Hugging Face: ho gestiona Transformers.js
-  if (url.pathname.includes("/models/") || url.pathname.endsWith(".wasm")) {
+  if (url.pathname.endsWith("/models/manifest.json")) {
+    event.respondWith(networkFirst(req, MODEL_CACHE));
+  } else if (url.pathname.includes("/models/") || url.pathname.endsWith(".wasm")) {
     event.respondWith(cacheFirst(req, MODEL_CACHE));
   } else if (req.mode === "navigate") {
     event.respondWith(staleWhileRevalidate(event, SHELL_CACHE, "index.html"));

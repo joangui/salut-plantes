@@ -2,6 +2,7 @@
 // Models: BioCLIP 2.5 destil·lat (4.271 espècies + les de la guia) i un classificador de plantes d'interior (47 classes).
 import { SIZE, toCHW, l2normalize, meanVectors, cosine, f16ToF32, f32ArrayToF16, similarities } from "./preprocess.js";
 import { FLORA_PRIOR, floraPrior, rankFlora, houseProbs } from "./ranking.js";
+import { loadSignModel, detectSigns } from "./symptoms.js";
 
 const BASE = new URL("./", self.location.href).href;
 const MODEL_CACHE = "salut-plantes-models-v1";
@@ -16,6 +17,7 @@ let taxaDim = 1024;
 let names = null;
 let prior = null;
 let houseLabels = null;
+let signModel = null;
 
 const post = (msg) => self.postMessage(msg);
 
@@ -25,20 +27,58 @@ async function openCache() {
   try { return self.caches ? await caches.open(MODEL_CACHE) : null; } catch { return null; }
 }
 
+// Les URL dels models porten la versió (hash) del manifest: si un model canvia, es torna a baixar.
+function versioned(path) {
+  const sha = manifest?.files?.[path]?.sha256;
+  return new URL(sha ? `${path}?v=${sha.slice(0, 12)}` : path, BASE).href;
+}
+
 async function isCached(path) {
   const cache = await openCache();
   if (!cache) return false;
-  return !!(await cache.match(new URL(path, BASE).href));
+  // Una còpia d'abans de posar versions també compta: si coincideix, es reaprofita sense baixar-la.
+  return !!(await cache.match(versioned(path)) || await cache.match(new URL(path, BASE).href));
+}
+
+async function sha256Hex(buf) {
+  const d = new Uint8Array(await crypto.subtle.digest("SHA-256", buf));
+  return Array.from(d, (b) => b.toString(16).padStart(2, "0")).join("");
+}
+
+// Reaprofita una còpia sense versió (d'una versió anterior de l'app) si el contingut és el mateix.
+async function adoptOldCopy(cache, path, url) {
+  const sha = manifest?.files?.[path]?.sha256;
+  const oldUrl = new URL(path, BASE).href;
+  if (!sha || oldUrl === url) return null;
+  const old = await cache.match(oldUrl);
+  if (!old) return null;
+  const buf = await old.arrayBuffer();
+  await cache.delete(oldUrl);
+  if (!crypto?.subtle || (await sha256Hex(buf)) !== sha) return null;
+  try { await cache.put(url, new Response(buf.slice(0), { headers: { "content-type": old.headers.get("content-type") || "application/octet-stream" } })); } catch { /* sense espai */ }
+  return buf;
+}
+
+// Esborra les còpies de models que ja no fa servir el manifest actual.
+async function pruneCache() {
+  const cache = await openCache();
+  if (!cache || !manifest?.files) return;
+  const keep = new Set(Object.keys(manifest.files).map(versioned));
+  keep.add(new URL("models/manifest.json", BASE).href);
+  for (const req of await cache.keys()) {
+    const u = new URL(req.url);
+    if (u.pathname.includes("/models/") && !keep.has(req.url)) await cache.delete(req);
+  }
 }
 
 // Descarrega (o llegeix de la memòria cau) i informa del progrés.
 async function getBytes(path, onBytes) {
-  const url = new URL(path, BASE).href;
+  const url = versioned(path);
   const cache = await openCache();
   if (cache) {
     const hit = await cache.match(url);
-    if (hit) {
-      const buf = await hit.arrayBuffer();
+    const buf = hit ? await hit.arrayBuffer() : await adoptOldCopy(cache, path, url);
+    if (buf) {
       onBytes?.(buf.byteLength, true);
       return buf;
     }
@@ -78,6 +118,26 @@ async function getJSON(path) {
   return JSON.parse(new TextDecoder().decode(buf));
 }
 
+// El manifest es llegeix de la xarxa si n'hi ha (així es veuen els models nous) i, si no, de la memòria cau.
+async function loadManifest() {
+  const url = new URL("models/manifest.json", BASE).href;
+  const cache = await openCache();
+  try {
+    const ctrl = new AbortController();
+    const timer = setTimeout(() => ctrl.abort(), 5000);
+    const res = await fetch(url, { cache: "no-cache", signal: ctrl.signal });
+    clearTimeout(timer);
+    if (res.ok) {
+      const text = await res.text();
+      try { await cache?.put(url, new Response(text, { headers: { "content-type": "application/json" } })); } catch { /* sense espai */ }
+      return JSON.parse(text);
+    }
+  } catch { /* sense connexió */ }
+  const hit = await cache?.match(url);
+  if (hit) return JSON.parse(await hit.text());
+  throw new Error("Cal connexió per descarregar els models el primer cop.");
+}
+
 /* ---------- ONNX Runtime ---------- */
 
 async function initRuntime() {
@@ -97,7 +157,7 @@ async function initRuntime() {
   };
   ort.env.wasm.numThreads = self.crossOriginIsolated ? Math.min(4, navigator.hardwareConcurrency || 2) : 1;
   ort.env.wasm.proxy = false;
-  manifest = await getJSON("models/manifest.json");
+  manifest = await loadManifest();
 }
 
 function plan(parts) {
@@ -106,6 +166,7 @@ function plan(parts) {
   files.push(`vendor/ort/ort-wasm-simd-threaded${wasmVariant}.wasm`);
   if (parts.includes("flora")) {
     files.push(floraModelPath(), manifest.flora.table, manifest.flora.names);
+    if (manifest.symptoms?.model) files.push(manifest.symptoms.model);
   }
   if (parts.includes("house")) files.push(manifest.house.model, manifest.house.labels);
   return files;
@@ -156,6 +217,11 @@ async function prepare(parts, reportProgress = true) {
     prior = floraPrior(names, FLORA_PRIOR);
     sessions.flora = await createSession(modelPath, modelBuf);
     sessions.floraIsF16 = modelPath === manifest.flora.model_fp16;
+  }
+  if (parts.includes("flora") && !signModel && manifest.symptoms?.model) {
+    try {
+      signModel = loadSignModel(JSON.parse(new TextDecoder().decode(await getBytes(manifest.symptoms.model, onBytes))));
+    } catch { signModel = null; }
   }
   if (parts.includes("house") && !sessions.house) {
     const [modelBuf, labelsBuf] = await Promise.all([
@@ -223,7 +289,8 @@ async function classify(images, useHouse) {
     const avg = houseRuns[0].map((_, k) => houseRuns.reduce((acc, p) => acc + p[k], 0) / houseRuns.length);
     house = avg.map((p, k) => ({ label: houseLabels[k], p })).sort((a, b) => b.p - a.p).slice(0, 3);
   }
-  return { backend, flora, perPhoto, minPair, house, ms: Math.round(performance.now() - t0) };
+  const signs = detectSigns(signModel, embeds);
+  return { backend, flora, perPhoto, minPair, house, signs, signsReady: !!signModel, ms: Math.round(performance.now() - t0) };
 }
 
 /* ---------- missatges ---------- */
@@ -240,9 +307,11 @@ self.onmessage = async (e) => {
       post({ id, type: "result", result: { backend, f16: hasF16, total, missing, ready: missing === 0 } });
     } else if (type === "prepare") {
       const r = await prepare(e.data.parts || ["flora", "house"], true);
+      pruneCache().catch(() => {});
       post({ id, type: "result", result: r });
     } else if (type === "classify") {
       const r = await classify(e.data.images, !!e.data.useHouse);
+      pruneCache().catch(() => {});
       post({ id, type: "result", result: r });
     } else if (type === "clear") {
       if (self.caches) await caches.delete(MODEL_CACHE);

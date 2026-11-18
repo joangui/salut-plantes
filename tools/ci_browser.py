@@ -1,6 +1,7 @@
 """Prova de punta a punta al navegador (Chromium sense GPU, per tant amb WASM).
 
-Comprova la primera anàlisi (descàrrega de models) i una segona anàlisi sense connexió.
+Comprova la primera anàlisi (descàrrega de models), una segona sense connexió i que el detector
+de símptomes funciona al navegador amb una foto d'oïdi.
 Ús: python tools/ci_browser.py _site
 """
 import functools
@@ -44,6 +45,8 @@ def report(page):
       tips: document.querySelectorAll('#sheets .tip').length,
       notes: [...document.querySelectorAll('#notes .pnote')].map(n => n.textContent),
       took: document.querySelector('#status-text')?.textContent,
+      seen: [...document.querySelectorAll('#sheets .seen li')].map(li => li.textContent),
+      summary: document.querySelector('#sheets .summary')?.textContent,
     })""")
 
 
@@ -60,7 +63,6 @@ with sync_playwright() as p:
     print("Estat inicial:", page.inner_text("#models-chip"))
 
     page.click("#set-ground")
-    page.click("#sym-pugo")
     page.set_input_files("#file-input", os.path.join(PHOTOS, "Olive.jpg"))
     page.wait_for_function("document.querySelectorAll('.slot.filled').length === 1")
     page.click("#analyze")
@@ -85,8 +87,21 @@ with sync_playwright() as p:
     print("Sense connexió:", json.dumps(r2, ensure_ascii=False))
     page.screenshot(path=os.path.join(OUT, "2-sense-connexio.png"), full_page=True)
 
+    mildew = os.path.join(PHOTOS, "simptomes", "Powdery_mildew.jpg")
+    if os.path.exists(mildew):
+        page.click("#set-pot")
+        page.set_input_files("#file-input", mildew)
+        page.wait_for_function("document.querySelectorAll('.slot.filled').length === 1")
+        page.click("#analyze")
+        page.wait_for_function("document.querySelector('#status-text').textContent.startsWith('Informe llest')", timeout=300000)
+        r3 = report(page)
+        print("Foto d'oïdi:", json.dumps(r3, ensure_ascii=False))
+        page.screenshot(path=os.path.join(OUT, "3-oidi.png"), full_page=True)
+        if not any("oïdi" in x for x in r3["seen"]):
+            print("Avís: el detector no hi ha vist oïdi al navegador.")
+
     page.set_viewport_size({"width": 390, "height": 844})
-    page.screenshot(path=os.path.join(OUT, "3-mobil.png"), full_page=True)
+    page.screenshot(path=os.path.join(OUT, "4-mobil.png"), full_page=True)
 
     real_errors = [e for e in errors if "favicon" not in e]
     if real_errors:
