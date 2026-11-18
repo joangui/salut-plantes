@@ -1,0 +1,15 @@
+{
+  "name": "salut-plantes",
+  "private": true,
+  "type": "module",
+  "description": "App web en català per identificar plantes i revisar-ne la salut al dispositiu, sense connexió.",
+  "scripts": {
+    "vendor": "node tools/vendor.mjs .",
+    "test:logic": "node tools/test_logic.mjs",
+    "test:light": "node tools/ci_light.mjs",
+    "test:gemma": "node tools/ci_gemma.mjs"
+  },
+  "devDependencies": {
+    "@huggingface/transformers": "4.3.2"
+  }
+}

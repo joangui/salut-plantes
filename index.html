@@ -1,0 +1,424 @@
+<!DOCTYPE html>
+<html lang="ca">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Salut de les plantes</title>
+<meta name="description" content="Identifica una planta i revisa'n la salut amb fotos. Funciona al dispositiu i sense connexió.">
+<meta name="theme-color" content="#e5e9df" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#0f1411" media="(prefers-color-scheme: dark)">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" href="icons/favicon.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="Plantes">
+<style>
+@font-face { font-family: "Libre Caslon Display"; font-weight: 400; font-style: normal; font-display: swap; src: url("vendor/fonts/libre-caslon-display-400.woff2") format("woff2"); }
+@font-face { font-family: "Libre Caslon Text"; font-weight: 400; font-style: normal; font-display: swap; src: url("vendor/fonts/libre-caslon-text-400.woff2") format("woff2"); }
+@font-face { font-family: "Libre Caslon Text"; font-weight: 400; font-style: italic; font-display: swap; src: url("vendor/fonts/libre-caslon-text-400-italic.woff2") format("woff2"); }
+@font-face { font-family: "Libre Caslon Text"; font-weight: 700; font-style: normal; font-display: swap; src: url("vendor/fonts/libre-caslon-text-700.woff2") format("woff2"); }
+@font-face { font-family: "Libre Franklin"; font-weight: 400; font-style: normal; font-display: swap; src: url("vendor/fonts/libre-franklin-400.woff2") format("woff2"); }
+@font-face { font-family: "Libre Franklin"; font-weight: 500; font-style: normal; font-display: swap; src: url("vendor/fonts/libre-franklin-500.woff2") format("woff2"); }
+@font-face { font-family: "Libre Franklin"; font-weight: 600; font-style: normal; font-display: swap; src: url("vendor/fonts/libre-franklin-600.woff2") format("woff2"); }
+@font-face { font-family: "Libre Franklin"; font-weight: 700; font-style: normal; font-display: swap; src: url("vendor/fonts/libre-franklin-700.woff2") format("woff2"); }
+@font-face { font-family: "Courier Prime"; font-weight: 400; font-style: normal; font-display: swap; src: url("vendor/fonts/courier-prime-400.woff2") format("woff2"); }
+@font-face { font-family: "Courier Prime"; font-weight: 700; font-style: normal; font-display: swap; src: url("vendor/fonts/courier-prime-700.woff2") format("woff2"); }
+
+:root {
+  /* Disseny: fotos i preguntes a l'esquerra, informe en fulls d'herbari a la dreta; una columna per sota de 940px. */
+  --paper: #e5e9df;
+  --sheet: #fbfcf8;
+  --ink: #1b2620;
+  --ink-soft: #56635a;
+  --rule: #c9d1c3;
+  --stamp: #5b3f9f;
+  --on-stamp: #ffffff;
+  --corner: rgba(27, 38, 32, .85);
+  --good: #0ca30c;
+  --warning: #fab219;
+  --serious: #ec835a;
+  --critical: #d03b3b;
+  --shadow: 0 1px 0 rgba(27, 38, 32, .05), 0 14px 30px -18px rgba(27, 38, 32, .35);
+  --font-display: "Libre Caslon Display", "Libre Caslon Text", Georgia, "Times New Roman", serif;
+  --font-serif: "Libre Caslon Text", Georgia, "Times New Roman", serif;
+  --font-body: "Libre Franklin", "Helvetica Neue", Helvetica, Arial, sans-serif;
+  --font-label: "Courier Prime", "Courier New", Courier, monospace;
+  color-scheme: light;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --paper: #0f1411; --sheet: #172019; --ink: #e3eae2; --ink-soft: #a0ada3; --rule: #2d3a31;
+    --stamp: #b8a4f4; --on-stamp: #1b1532; --corner: rgba(227, 234, 226, .78);
+    --shadow: 0 1px 0 rgba(0, 0, 0, .35), 0 16px 32px -18px rgba(0, 0, 0, .9);
+    color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --paper: #0f1411; --sheet: #172019; --ink: #e3eae2; --ink-soft: #a0ada3; --rule: #2d3a31;
+  --stamp: #b8a4f4; --on-stamp: #1b1532; --corner: rgba(227, 234, 226, .78);
+  --shadow: 0 1px 0 rgba(0, 0, 0, .35), 0 16px 32px -18px rgba(0, 0, 0, .9);
+  color-scheme: dark;
+}
+
+*, *::before, *::after { box-sizing: border-box; }
+html { -webkit-text-size-adjust: 100%; text-size-adjust: 100%; }
+body { margin: 0; background: var(--paper); color: var(--ink); font: 400 1rem/1.55 var(--font-body); -webkit-font-smoothing: antialiased; }
+img, svg { max-width: 100%; }
+[hidden] { display: none !important; }
+button, input, textarea { font: inherit; color: inherit; }
+button { cursor: pointer; }
+:focus-visible { outline: 2px solid var(--stamp); outline-offset: 2px; }
+.sr { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0; }
+.ico { width: 1.15em; height: 1.15em; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; flex: none; vertical-align: -0.18em; }
+
+.wrap { max-width: 1220px; margin: 0 auto; padding: max(22px, env(safe-area-inset-top)) clamp(16px, 4vw, 40px) 64px; }
+
+/* Capçalera */
+.masthead { display: grid; gap: 12px; padding-bottom: 20px; margin-bottom: clamp(22px, 3vw, 32px); border-bottom: 3px double var(--rule); }
+h1 { margin: 0; font: 400 clamp(2.3rem, 1.5rem + 2.6vw, 3.5rem)/1 var(--font-display); letter-spacing: -0.015em; text-wrap: balance; }
+.lede { margin: 0; max-width: 62ch; font-size: 1.06rem; color: var(--ink-soft); text-wrap: pretty; }
+.statusbar { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 10px; font-size: .86rem; }
+.pill { display: inline-flex; align-items: center; gap: 7px; padding: 4px 11px; border: 1px solid var(--rule); border-radius: 999px; background: var(--sheet); }
+.pill .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--good); }
+.pill[data-state="offline"] .dot { background: var(--warning); }
+.pill[data-state="ready"] .ico { color: var(--good); }
+.link-btn { border: 0; background: none; padding: 0; color: var(--stamp); font-weight: 600; text-decoration: underline; text-underline-offset: 2px; }
+.ios-hint { color: var(--ink-soft); }
+.progress { display: flex; align-items: center; gap: 10px; font: 400 .8rem/1.3 var(--font-label); color: var(--ink-soft); }
+.bar { flex: 1 1 auto; min-width: 120px; height: 6px; border-radius: 3px; background: color-mix(in srgb, var(--stamp) 15%, var(--sheet)); overflow: hidden; }
+.bar-fill { display: block; height: 100%; width: 0; background: var(--stamp); transition: width .2s ease; }
+
+.layout { display: grid; grid-template-columns: minmax(290px, 380px) minmax(0, 1fr); gap: clamp(24px, 3.2vw, 48px); align-items: start; }
+@media (max-width: 940px) { .layout { grid-template-columns: minmax(0, 1fr); } }
+
+.label { margin: 0; font: 700 .76rem/1.3 var(--font-label); letter-spacing: .13em; text-transform: uppercase; color: var(--ink-soft); }
+.label .opt { font-weight: 400; letter-spacing: .04em; text-transform: none; margin-left: .5em; }
+.label-row { display: flex; align-items: baseline; gap: 10px; }
+.label-row .link-btn { margin-left: auto; font-size: .82rem; }
+
+/* Entrada */
+.intake { display: grid; gap: 28px; min-width: 0; }
+.block { display: grid; gap: 12px; }
+.slots { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 14px; }
+.slot-wrap { margin: 0; display: grid; gap: 6px; min-width: 0; }
+.slot { position: relative; aspect-ratio: 1; background: var(--sheet); border: 1px solid var(--rule); border-radius: 3px; }
+.slot::after, .mounted::after {
+  content: ""; position: absolute; pointer-events: none; z-index: 1; --k: 15px;
+  background:
+    linear-gradient(135deg, var(--corner) 50%, transparent 0) top left / var(--k) var(--k) no-repeat,
+    linear-gradient(225deg, var(--corner) 50%, transparent 0) top right / var(--k) var(--k) no-repeat,
+    linear-gradient(45deg, var(--corner) 50%, transparent 0) bottom left / var(--k) var(--k) no-repeat,
+    linear-gradient(315deg, var(--corner) 50%, transparent 0) bottom right / var(--k) var(--k) no-repeat;
+}
+.slot::after { inset: 6px; }
+.slot-btn { position: absolute; inset: 0; width: 100%; height: 100%; display: grid; place-content: center; justify-items: center; gap: 6px; padding: 12px; border: 0; border-radius: 3px; background: transparent; color: var(--ink-soft); font: 500 .82rem/1.2 var(--font-body); text-align: center; }
+.slot-btn:hover { color: var(--ink); background: color-mix(in srgb, var(--stamp) 7%, transparent); }
+.slot-btn:focus-visible { outline-offset: -3px; }
+.slot-btn .ico { width: 24px; height: 24px; }
+.slot-btn img { position: absolute; inset: 10px; width: calc(100% - 20px); height: calc(100% - 20px); object-fit: cover; border-radius: 1px; box-shadow: 0 1px 3px rgba(0, 0, 0, .2); }
+.slot-remove { position: absolute; top: -10px; right: -10px; z-index: 2; width: 28px; height: 28px; padding: 0; display: grid; place-items: center; border-radius: 50%; border: 1px solid var(--rule); background: var(--sheet); color: var(--ink); box-shadow: 0 2px 6px -2px rgba(0, 0, 0, .3); }
+.slot-remove .ico { width: 14px; height: 14px; stroke-width: 2.2; }
+.slot-wait { position: absolute; inset: 0; display: grid; place-items: center; font: 400 .78rem/1 var(--font-label); color: var(--ink-soft); animation: pulse 1.2s ease-in-out infinite; }
+@keyframes pulse { 50% { opacity: .45; } }
+.slot-cap { display: flex; gap: 6px; align-items: baseline; min-width: 0; font: 400 .78rem/1.3 var(--font-label); color: var(--ink-soft); }
+.slot-cap b { color: var(--ink); font-weight: 700; }
+body.dragging .slot { outline: 2px dashed var(--stamp); outline-offset: 3px; }
+.hint { margin: 0; font-size: .9rem; color: var(--ink-soft); text-wrap: pretty; }
+.msg { margin: 0; padding: 8px 12px; border-radius: 6px; font-size: .88rem; background: color-mix(in srgb, var(--warning) 16%, var(--sheet)); border: 1px solid color-mix(in srgb, var(--warning) 55%, var(--rule)); }
+
+.sym-group { display: grid; gap: 6px; }
+.sym-label { margin: 4px 0 0; font-size: .84rem; font-weight: 600; }
+.chips { display: flex; flex-wrap: wrap; gap: 7px; }
+.chip { border: 1px solid var(--rule); background: var(--sheet); border-radius: 999px; padding: 6px 13px; font-size: .9rem; line-height: 1.2; text-align: left; }
+.chip.small { padding: 5px 11px; font-size: .84rem; }
+.chip:hover { border-color: color-mix(in srgb, var(--stamp) 55%, var(--rule)); }
+.chip[aria-pressed="true"] { background: var(--stamp); border-color: var(--stamp); color: var(--on-stamp); }
+.field { display: grid; gap: 6px; }
+.field > label, .field-label { font-size: .88rem; font-weight: 600; }
+input[type="text"] { width: 100%; border: 1px solid var(--rule); background: var(--sheet); border-radius: 6px; padding: 9px 12px; font-size: .95rem; line-height: 1.4; }
+input[type="text"]:focus-visible { outline: 2px solid var(--stamp); outline-offset: 0; border-color: transparent; }
+::placeholder { color: var(--ink-soft); opacity: .75; }
+.ai-box { display: grid; gap: 8px; padding: 14px; border: 1px solid var(--rule); border-radius: 6px; background: var(--sheet); }
+.check { display: flex; gap: 10px; align-items: flex-start; font-size: .95rem; font-weight: 600; cursor: pointer; }
+.check input { width: 18px; height: 18px; margin: 3px 0 0; accent-color: var(--stamp); flex: none; }
+.check small { display: block; font-weight: 400; color: var(--ink-soft); font-size: .86rem; margin-top: 2px; }
+.ai-status { margin: 0 0 0 28px; font-size: .86rem; color: var(--ink-soft); }
+.ai-status .ico { color: var(--good); }
+.primary { width: 100%; padding: 14px 18px; border: 0; border-radius: 8px; background: var(--stamp); color: var(--on-stamp); font: 600 1.02rem/1.2 var(--font-body); letter-spacing: .01em; box-shadow: 0 1px 0 rgba(0, 0, 0, .08), 0 8px 18px -10px var(--stamp); transition: transform .12s ease, filter .12s ease; }
+.primary:hover:not(:disabled) { filter: brightness(1.08); }
+.primary:active:not(:disabled) { transform: translateY(1px); }
+.primary:disabled { background: color-mix(in srgb, var(--ink) 12%, var(--paper)); color: var(--ink-soft); box-shadow: none; cursor: not-allowed; }
+.fine { margin: 0; font-size: .82rem; color: var(--ink-soft); }
+
+/* Informe */
+.report { display: grid; gap: 16px; min-width: 0; scroll-margin-top: 16px; }
+.report-head { display: flex; align-items: center; gap: 8px 14px; flex-wrap: wrap; min-height: 20px; }
+.report-head .label { margin-right: auto; }
+.status { display: flex; gap: 10px; align-items: center; font: 400 .84rem/1.3 var(--font-label); color: var(--ink-soft); }
+.elapsed { font-variant-numeric: tabular-nums; color: var(--ink); }
+.ghost { border: 1px solid var(--rule); background: var(--sheet); border-radius: 999px; padding: 6px 15px; font-size: .88rem; font-weight: 600; }
+.ghost:hover { border-color: var(--ink-soft); }
+.report-head .ghost { padding: 4px 13px; margin: -6px 0; }
+.example-note { margin: 0; padding: 10px 14px; border-left: 3px solid var(--stamp); background: color-mix(in srgb, var(--stamp) 8%, transparent); font-size: .93rem; }
+.notes { display: grid; gap: 8px; }
+.notes:empty { display: none; }
+.pnote { margin: 0; padding: 10px 14px; border: 1px dashed var(--rule); border-radius: 4px; font-size: .92rem; background: var(--sheet); }
+.sheets { display: grid; gap: 26px; }
+.disclaimer { margin: 6px 0 0; font-size: .84rem; color: var(--ink-soft); max-width: 72ch; text-wrap: pretty; }
+
+.sheet { position: relative; display: grid; gap: 22px; min-width: 0; background: var(--sheet); border: 1px solid var(--rule); border-radius: 4px; box-shadow: var(--shadow); padding: clamp(18px, 3vw, 30px); animation: sheet-in .45s ease-out both; }
+@keyframes sheet-in { from { opacity: 0; transform: translateY(6px); } }
+.sheet-top { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: clamp(18px, 3vw, 30px); align-items: start; }
+.mount { display: grid; gap: 10px; width: 280px; max-width: 100%; }
+.mount[data-count="0"] { display: none; }
+.mount[data-count="1"] { width: 230px; }
+.mount[data-count="2"] { grid-template-columns: 1fr 1fr; }
+.mount[data-count="3"] { grid-template-columns: 2fr 1fr; }
+.mount[data-count="3"] .mounted:first-child { grid-row: span 2; aspect-ratio: auto; }
+.mounted { position: relative; margin: 0; aspect-ratio: 1; min-height: 0; }
+.mounted::after { inset: 0; --k: 14px; }
+.mounted img, .mounted .illus { position: absolute; inset: 4px; width: calc(100% - 8px); height: calc(100% - 8px); object-fit: cover; display: block; box-shadow: 0 1px 4px rgba(0, 0, 0, .22); }
+.pnum { position: absolute; left: 50%; bottom: 9px; transform: translateX(-50%); z-index: 2; font: 700 .7rem/1 var(--font-label); background: var(--sheet); color: var(--ink); padding: 3px 6px; border-radius: 3px; }
+@media (max-width: 640px) {
+  .sheet-top { grid-template-columns: minmax(0, 1fr); }
+  .mount, .mount[data-count="1"] { width: 100%; max-width: 340px; }
+}
+.det { position: relative; display: grid; gap: 2px; align-content: start; min-width: 0; padding: 24px 18px 16px; border: 1px solid var(--rule); border-radius: 2px; background: color-mix(in srgb, var(--ink) 2.5%, var(--sheet)); }
+.stamp { position: absolute; top: -13px; right: 14px; transform: rotate(-4deg); font: 700 .7rem/1 var(--font-label); letter-spacing: .14em; text-transform: uppercase; color: var(--stamp); background: var(--sheet); border: 2px solid currentColor; border-radius: 3px; padding: 6px 9px 5px; box-shadow: inset 0 0 0 2px var(--sheet), inset 0 0 0 3px currentColor; }
+.binomial { margin: 0; font: 400 clamp(1.5rem, 1.15rem + 1.2vw, 2rem)/1.12 var(--font-serif); text-wrap: balance; overflow-wrap: anywhere; }
+.binomial.is-italic { font-style: italic; }
+.common { margin: 2px 0 0; font-weight: 600; font-size: 1.02rem; }
+.muted { color: var(--ink-soft); font-weight: 400; font-size: .92rem; }
+.det-fields { margin: 12px 0 0; padding-top: 10px; border-top: 1px dashed var(--rule); display: grid; grid-template-columns: max-content minmax(0, 1fr); gap: 5px 14px; font: 400 .84rem/1.4 var(--font-label); }
+.det-fields > div { display: contents; }
+.det-fields dt { color: var(--ink-soft); text-transform: uppercase; letter-spacing: .08em; font-size: .72rem; padding-top: .15em; }
+.det-fields dd { margin: 0; overflow-wrap: anywhere; }
+.fix-btn { justify-self: start; margin-top: 10px; font-size: .86rem; }
+.picker { display: grid; gap: 6px; margin-top: 10px; padding-top: 10px; border-top: 1px dashed var(--rule); }
+.picker label { font-size: .86rem; font-weight: 600; }
+.picker-row { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+.picker-row input { flex: 1 1 180px; }
+.typing::after { content: ""; display: inline-block; width: .5em; height: .9em; margin-left: 4px; background: var(--stamp); vertical-align: -0.05em; animation: blink 1s steps(1) infinite; }
+@keyframes blink { 50% { opacity: 0; } }
+.skel { display: grid; gap: 12px; }
+.skel span { display: block; height: 12px; border-radius: 6px; background: linear-gradient(90deg, color-mix(in srgb, var(--ink) 6%, var(--sheet)), color-mix(in srgb, var(--ink) 12%, var(--sheet)), color-mix(in srgb, var(--ink) 6%, var(--sheet))); background-size: 200% 100%; animation: shimmer 1.6s linear infinite; }
+@keyframes shimmer { to { background-position: -200% 0; } }
+
+.health { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 20px; align-items: start; }
+.gauge { position: relative; width: 96px; height: 96px; }
+.ring { width: 100%; height: 100%; display: block; }
+.ring-track { fill: none; stroke: color-mix(in srgb, var(--st) 22%, var(--sheet)); stroke-width: 9; }
+.ring-fill { fill: none; stroke: var(--st); stroke-width: 9; stroke-linecap: round; animation: ring-in 1s cubic-bezier(.2, .7, .2, 1) .15s both; }
+@keyframes ring-in { from { stroke-dashoffset: var(--c); } }
+.gauge-num { position: absolute; inset: 0; display: grid; place-content: center; text-align: center; }
+.gauge-num strong { font: 600 1.7rem/1 var(--font-body); font-variant-numeric: tabular-nums; }
+.gauge-num small { font: 400 .66rem/1 var(--font-label); color: var(--ink-soft); margin-top: 4px; letter-spacing: .04em; }
+.health-text { display: grid; gap: 9px; min-width: 0; }
+.status-pill { justify-self: start; margin: 0; display: inline-flex; align-items: center; gap: 7px; padding: 4px 12px 4px 8px; border-radius: 999px; font-weight: 600; font-size: .92rem; background: color-mix(in srgb, var(--st) 15%, var(--sheet)); border: 1px solid color-mix(in srgb, var(--st) 55%, var(--sheet)); }
+.status-pill .ico { color: var(--st); width: 18px; height: 18px; stroke-width: 2.3; }
+.summary { margin: 0; max-width: 66ch; text-wrap: pretty; }
+.obs { margin: 0; padding-left: 1.1em; display: grid; gap: 3px; font-size: .94rem; }
+.pests { margin: 0; display: flex; gap: 8px; align-items: flex-start; font-size: .94rem; }
+.pests .ico { margin-top: 2px; width: 18px; height: 18px; color: var(--pc, var(--ink-soft)); stroke-width: 2; }
+.pests[data-p="found"] { --pc: var(--critical); }
+.pests[data-p="none_seen"] { --pc: var(--good); }
+.basis { margin: 0; font: 400 .78rem/1.4 var(--font-label); color: var(--ink-soft); }
+.basis:empty { display: none; }
+.adjust { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; }
+.adj { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 1px 10px; align-items: center; padding: 10px 12px; border: 1px solid var(--rule); border-radius: 6px; }
+.adj .ico { grid-row: span 2; width: 22px; height: 22px; color: var(--ink-soft); }
+.adj-k { font: 400 .72rem/1.2 var(--font-label); text-transform: uppercase; letter-spacing: .1em; color: var(--ink-soft); }
+.adj-v { font-weight: 600; font-size: .95rem; line-height: 1.25; }
+.adj-g { display: inline-block; min-width: .9em; color: var(--stamp); }
+.adj[data-v="more"], .adj[data-v="less"] { border-color: color-mix(in srgb, var(--stamp) 55%, var(--rule)); background: color-mix(in srgb, var(--stamp) 7%, var(--sheet)); }
+.adj[data-v="more"] .ico, .adj[data-v="less"] .ico { color: var(--stamp); }
+.adj[data-v="same"] .adj-g, .adj[data-v="unclear"] .adj-g { color: var(--ink-soft); }
+@media (max-width: 520px) {
+  .adjust { grid-template-columns: 1fr; gap: 8px; }
+  .health { gap: 12px 16px; align-items: center; }
+  .health-text { display: contents; }
+  .health .summary, .health .pests, .health .obs, .health .basis { grid-column: 1 / -1; }
+  .gauge { width: 84px; height: 84px; }
+}
+.part { display: grid; gap: 12px; padding-top: 20px; border-top: 1px solid var(--rule); }
+.part h4 { margin: 0; font: 400 1.32rem/1.2 var(--font-serif); }
+.h4-note { font: 400 .8rem/1 var(--font-label); color: var(--ink-soft); letter-spacing: .02em; }
+.issues { list-style: none; margin: 0; padding: 0; display: grid; gap: 10px; }
+.issue { display: grid; gap: 4px; padding: 10px 14px 11px; border: 1px solid var(--rule); border-left: 4px solid var(--st); border-radius: 4px; }
+.issue-head { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 8px; }
+.issue-name { font-weight: 600; margin-right: auto; }
+.tag { display: inline-flex; align-items: center; gap: 5px; padding: 4px 7px; border: 1px solid var(--rule); border-radius: 3px; font: 400 .72rem/1 var(--font-label); text-transform: uppercase; letter-spacing: .08em; color: var(--ink-soft); }
+.tag .ico { width: 13px; height: 13px; color: var(--st); stroke-width: 2.4; }
+.issue-ev { margin: 0; color: var(--ink-soft); font-size: .94rem; text-wrap: pretty; }
+.issue-src { margin: 0; font: 400 .76rem/1.3 var(--font-label); color: var(--stamp); }
+.empty { margin: 0; color: var(--ink-soft); }
+.tips { list-style: none; margin: 0; padding: 0; display: grid; gap: 18px; counter-reset: tip; }
+.tip { display: grid; grid-template-columns: 30px minmax(0, 1fr); gap: 0 12px; counter-increment: tip; }
+.tip::before { content: counter(tip); font: 400 1.75rem/1 var(--font-display); color: var(--stamp); padding-top: 3px; }
+.tip-body { display: grid; gap: 5px; min-width: 0; }
+.tip-meta { margin: 0; display: flex; flex-wrap: wrap; gap: 6px; }
+.when, .cat { padding: 4px 7px; border-radius: 3px; font: 700 .7rem/1 var(--font-label); text-transform: uppercase; letter-spacing: .1em; }
+.when { border: 1px solid var(--rule); color: var(--ink-soft); }
+.cat { color: var(--ink-soft); font-weight: 400; padding-left: 2px; }
+.tip[data-when="ara"] .when { background: var(--stamp); border-color: var(--stamp); color: var(--on-stamp); }
+.tip[data-when="setmana"] .when { border-color: var(--stamp); color: var(--stamp); }
+.tip-title { margin: 0; font-weight: 600; text-wrap: balance; }
+.tip-detail { margin: 0; font-size: .95rem; max-width: 68ch; text-wrap: pretty; }
+.products { list-style: none; margin: 3px 0 0; padding: 0; display: flex; flex-wrap: wrap; gap: 6px; }
+.products li { font-size: .84rem; padding: 3px 10px; border-radius: 999px; border: 1px dashed color-mix(in srgb, var(--ink) 35%, var(--rule)); }
+.label-note { margin: 0; font-size: .82rem; color: var(--ink-soft); }
+.care { margin: 0; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px 26px; }
+.care > div { display: grid; gap: 2px; }
+.care dt { font: 400 .72rem/1.2 var(--font-label); text-transform: uppercase; letter-spacing: .1em; color: var(--ink-soft); }
+.care dd { margin: 0; font-size: .95rem; }
+@media (max-width: 520px) { .care { grid-template-columns: 1fr; } }
+.watch { margin: 0; display: flex; gap: 8px; align-items: flex-start; padding: 10px 12px; border-radius: 4px; font-size: .92rem; background: color-mix(in srgb, var(--warning) 12%, var(--sheet)); }
+.watch .ico { margin-top: 2px; color: color-mix(in srgb, var(--warning) 70%, var(--ink)); }
+.error-card { display: grid; gap: 10px; justify-items: start; padding: 16px 18px; border: 1px solid color-mix(in srgb, var(--critical) 50%, var(--rule)); border-left: 4px solid var(--critical); border-radius: 4px; background: color-mix(in srgb, var(--critical) 6%, var(--sheet)); }
+.error-card p { margin: 0; }
+
+/* Com funciona */
+.how { margin-top: 48px; padding-top: 24px; border-top: 3px double var(--rule); display: grid; gap: 14px; max-width: 78ch; font-size: .92rem; color: var(--ink-soft); }
+.how h2 { margin: 0; font: 400 1.4rem/1.2 var(--font-serif); color: var(--ink); }
+.how p { margin: 0; text-wrap: pretty; }
+.how a { color: var(--stamp); }
+.how-row { display: flex; flex-wrap: wrap; gap: 10px 16px; align-items: center; }
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { animation: none !important; transition: none !important; }
+}
+</style>
+</head>
+<body>
+<svg width="0" height="0" style="position:absolute" aria-hidden="true" focusable="false">
+  <symbol id="i-plus" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></symbol>
+  <symbol id="i-x" viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18"/></symbol>
+  <symbol id="i-check" viewBox="0 0 24 24"><path d="M4.5 12.5l4.5 4.5L19.5 6.5"/></symbol>
+  <symbol id="i-alert" viewBox="0 0 24 24"><path d="M12 3.6L2.6 19.8h18.8z"/><path d="M12 9.6v4.6M12 17.1v.1"/></symbol>
+  <symbol id="i-stop" viewBox="0 0 24 24"><path d="M8.2 3h7.6L21 8.2v7.6L15.8 21H8.2L3 15.8V8.2z"/><path d="M9.2 9.2l5.6 5.6M14.8 9.2l-5.6 5.6"/></symbol>
+  <symbol id="i-question" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M9.6 9.4a2.5 2.5 0 1 1 3.4 2.4c-.6.3-1 .8-1 1.5v.5M12 16.8v.2"/></symbol>
+  <symbol id="i-bug" viewBox="0 0 24 24"><ellipse cx="12" cy="14" rx="4.6" ry="6"/><path d="M12 8v12M9.5 7.2L8 5M14.5 7.2L16 5M7.4 11.5H4M7.4 15.5H4.4M16.6 11.5H20M16.6 15.5h3"/></symbol>
+  <symbol id="i-drop" viewBox="0 0 24 24"><path d="M12 3.5s6 6.6 6 10.9a6 6 0 0 1-12 0C6 10.1 12 3.5 12 3.5z"/></symbol>
+  <symbol id="i-sun" viewBox="0 0 24 24"><circle cx="12" cy="12" r="4"/><path d="M12 2.5V5M12 19v2.5M2.5 12H5M19 12h2.5M5.3 5.3l1.8 1.8M16.9 16.9l1.8 1.8M5.3 18.7l1.8-1.8M16.9 7.1l1.8-1.8"/></symbol>
+  <symbol id="i-sprout" viewBox="0 0 24 24"><path d="M12 21v-8.5M12 12.5c0-4.2 3-6.8 7.5-6.8 0 4.6-3 6.8-7.5 6.8zM12 15.2c0-3.1-2.3-5.1-6-5.1 0 3.4 2.4 5.1 6 5.1z"/></symbol>
+</svg>
+
+<template id="tpl-illus">
+<svg class="illus" viewBox="0 0 200 200" role="img" aria-label="Dibuix d'una branca de llimoner amb pugó als brots nous">
+  <rect width="200" height="200" fill="#e8eddf"/>
+  <path d="M14 192 C52 160 86 132 112 104 C136 78 160 52 186 22" fill="none" stroke="#6b5636" stroke-width="5" stroke-linecap="round"/>
+  <g fill="#3f7b3f" stroke="#2b5a2c" stroke-width="1.2">
+    <path d="M48 163 C28 137 40 109 72 101 C78 129 70 151 48 163 Z"/>
+    <path d="M93 123 C99 95 125 83 151 93 C139 119 119 129 93 123 Z"/>
+    <path d="M64 151 C90 155 104 173 100 197 C74 193 60 175 64 151 Z"/>
+  </g>
+  <g fill="none" stroke="#2b5a2c" stroke-width="1">
+    <path d="M48 163 C56 141 62 121 72 101"/>
+    <path d="M93 123 C109 111 129 99 151 93"/>
+    <path d="M64 151 C78 163 92 179 100 197"/>
+  </g>
+  <path d="M118 98 C120 108 121 116 122 125" fill="none" stroke="#6b5636" stroke-width="2.5" stroke-linecap="round"/>
+  <ellipse cx="128" cy="146" rx="25" ry="20" transform="rotate(20 128 146)" fill="#f2c94a" stroke="#c4961f" stroke-width="1.5"/>
+  <ellipse cx="119" cy="138" rx="7" ry="4" transform="rotate(20 119 138)" fill="#f8de8a" opacity=".85"/>
+  <g fill="#86b04c" stroke="#5d8636" stroke-width="1">
+    <path d="M162 52 C150 40 154 26 168 22 C172 36 170 46 162 52 Z"/>
+    <path d="M174 40 C184 32 196 36 198 46 C188 50 180 48 174 40 Z"/>
+  </g>
+  <g fill="#5f8f2f">
+    <ellipse cx="156" cy="59" rx="2.8" ry="1.9" transform="rotate(-40 156 59)"/>
+    <ellipse cx="162" cy="53" rx="2.4" ry="1.7" transform="rotate(-40 162 53)"/>
+    <ellipse cx="150" cy="66" rx="2.6" ry="1.8" transform="rotate(-40 150 66)"/>
+    <ellipse cx="167" cy="47" rx="2.4" ry="1.7" transform="rotate(-40 167 47)"/>
+    <ellipse cx="160" cy="63" rx="2.2" ry="1.6" transform="rotate(-40 160 63)"/>
+    <ellipse cx="171" cy="41" rx="2.2" ry="1.6" transform="rotate(-40 171 41)"/>
+  </g>
+</svg>
+</template>
+
+<div class="wrap">
+  <header class="masthead">
+    <h1>Salut de les plantes</h1>
+    <p class="lede">Fes fins a tres fotos d'una planta o d'un arbre. L'app la identifica, en revisa la salut i et diu què cal fer. Tot passa al teu dispositiu, també sense connexió.</p>
+    <div class="statusbar">
+      <span class="pill" id="net-chip"></span>
+      <span class="pill" id="models-chip"></span>
+      <button type="button" class="ghost" id="install-btn" hidden>Instal·la l'app</button>
+      <span class="ios-hint" id="ios-hint" hidden>Per instal·lar-la a l'iPhone: Comparteix → Afegeix a la pantalla d'inici.</span>
+    </div>
+    <div class="progress" id="models-progress" hidden></div>
+  </header>
+
+  <main class="layout">
+    <section class="intake" id="intake" aria-label="Fotos i dades de la planta">
+      <div class="block">
+        <h2 class="label">Fotos <span class="opt">fins a 3</span></h2>
+        <div class="slots" id="slots"></div>
+        <p class="hint">Fes les fotos d'una sola planta: sencera, una fulla de prop i qualsevol dany que hi vegis. Per a una altra planta, fes una anàlisi nova.</p>
+        <p class="msg" id="intake-msg" role="status" aria-live="polite" hidden></p>
+        <input type="file" id="file-input" accept="image/*" multiple hidden>
+      </div>
+
+      <div class="block">
+        <div class="label-row">
+          <h2 class="label">Què hi veus? <span class="opt" id="sym-count">opcional</span></h2>
+          <button type="button" class="link-btn" id="sym-clear" hidden>Desmarca-ho tot</button>
+        </div>
+        <div id="symptoms"></div>
+      </div>
+
+      <div class="block">
+        <h2 class="label">Sobre la planta <span class="opt">opcional</span></h2>
+        <div class="field">
+          <span class="field-label" id="setting-label">On és</span>
+          <div class="chips" role="group" aria-labelledby="setting-label">
+            <button type="button" class="chip" id="set-indoors" data-setting="indoors" aria-pressed="false">A dins de casa</button>
+            <button type="button" class="chip" id="set-pot" data-setting="pot" aria-pressed="false">A fora, en test</button>
+            <button type="button" class="chip" id="set-ground" data-setting="ground" aria-pressed="false">A fora, al terra</button>
+          </div>
+        </div>
+        <div class="field">
+          <label for="loc">Lloc</label>
+          <input type="text" id="loc" autocomplete="off" placeholder="Població">
+        </div>
+      </div>
+
+      <div class="block">
+        <div class="ai-box">
+          <label class="check" for="ai-toggle"><input type="checkbox" id="ai-toggle"><span>Anàlisi avançada amb IA<small>La IA Gemma 4 mira les fotos i en valora la salut. Funciona al dispositiu, sense connexió un cop descarregada. Només en ordinadors.</small></span></label>
+          <p class="ai-status" id="ai-status"></p>
+          <div class="progress" id="ai-progress" hidden></div>
+        </div>
+      </div>
+
+      <div class="block">
+        <button type="button" class="primary" id="analyze" disabled>Afegeix una foto per començar</button>
+        <div class="progress" id="run-progress" hidden></div>
+        <p class="fine">Les fotos no surten mai del teu dispositiu.</p>
+      </div>
+    </section>
+
+    <section class="report" id="report" aria-labelledby="report-h">
+      <div class="report-head">
+        <h2 class="label" id="report-h">Informe</h2>
+        <div class="status"><span id="status-text" role="status" aria-live="polite"></span><span class="elapsed" id="elapsed" aria-hidden="true"></span></div>
+        <button type="button" class="ghost" id="stop" hidden>Atura la IA</button>
+      </div>
+      <p class="example-note" id="example-note">Això és un informe d'exemple. Afegeix fotos de la teva planta per obtenir el teu.</p>
+      <div class="notes" id="notes"></div>
+      <div class="sheets" id="sheets"></div>
+      <p class="disclaimer">La identificació i el diagnòstic a partir de fotos poden fallar. No facis servir aquesta app per decidir si una planta és comestible o tòxica. Llegeix sempre l'etiqueta dels productes i consulta un viver o un especialista si el problema és greu.</p>
+    </section>
+  </main>
+
+  <footer class="how" id="com-funciona">
+    <h2>Com funciona</h2>
+    <p>La identificació la fa un model botànic obert, BioCLIP 2.5 destil·lat per a mòbils, que reconeix 4.271 espècies de plantes, amb l'ajuda d'un segon model per a 47 plantes d'interior habituals. El model botànic es va entrenar amb plantes silvestres i no coneix bé els cítrics ni algunes plantes de jardí; si s'equivoca, corregeix-lo amb «No és aquesta planta?».</p>
+    <p>Sense la IA avançada, la salut es valora a partir dels símptomes que marques, i els consells surten d'una guia de cures i tractaments pensada per a Catalunya. Amb la IA avançada, el model Gemma 4 de Google mira també les fotos.</p>
+    <p>Els models es descarreguen un sol cop i es desen al navegador. A partir d'aquí, l'app funciona sense connexió i res surt del dispositiu.</p>
+    <div class="how-row"><span id="storage"></span><button type="button" class="link-btn" id="clear-data">Esborra els models descarregats</button></div>
+    <p>Models: <a href="https://huggingface.co/crazedcodernate/bioclip-2.5-mobile-fastvit">BioCLIP 2.5 mobile</a> (MIT), <a href="https://huggingface.co/onnx-community/house-plant-image-detection-ONNX">plantes d'interior</a> (Apache 2.0) i <a href="https://huggingface.co/onnx-community/gemma-4-E2B-it-ONNX">Gemma 4 E2B</a> (Apache 2.0). Funcionen amb ONNX Runtime Web i Transformers.js.</p>
+  </footer>
+</div>
+<script type="module" src="app.js"></script>
+</body>
+</html>

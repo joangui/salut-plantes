@@ -1,0 +1,8 @@
+node_modules/
+_site/
+.model-cache/
+.test-photos/
+models/
+vendor/ort/
+vendor/transformers/
+__pycache__/

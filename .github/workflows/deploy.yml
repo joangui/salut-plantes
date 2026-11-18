@@ -1,0 +1,86 @@
+name: Construeix, prova i publica
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Dependències de Node (versions fixades)
+        run: npm ci --no-audit --no-fund
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Dependències de Python
+        run: pip install numpy playwright
+
+      - name: Memòria cau dels models
+        uses: actions/cache@v4
+        with:
+          path: .model-cache
+          key: models-${{ hashFiles('tools/fetch_models.py') }}
+
+      - name: Descarrega i prepara els models
+        run: python tools/fetch_models.py --out models --cache .model-cache
+
+      - name: Copia les biblioteques a vendor/
+        run: node tools/vendor.mjs .
+
+      - name: Tests de la lògica i la guia
+        run: node tools/test_logic.mjs
+
+      - name: Identificació amb fotos reals
+        run: node tools/ci_light.mjs
+
+      - name: Munta el lloc
+        run: python tools/assemble.py _site
+
+      - name: Prova al navegador, també sense connexió
+        run: |
+          python -m playwright install --with-deps chromium
+          python tools/ci_browser.py _site
+
+      - name: Desa els resultats de les proves
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: resultats-proves
+          path: ci-artifacts
+          if-no-files-found: ignore
+
+      - uses: actions/configure-pages@v5
+
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: _site
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4

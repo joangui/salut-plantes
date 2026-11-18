@@ -1,0 +1,33 @@
+name: Prova de la IA avançada (Gemma 4)
+
+# Manual: descarrega uns 3,7 GB i triga força minuts.
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  gemma:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Dependències de Node (versions fixades)
+        run: npm ci --no-audit --no-fund
+
+      - name: Memòria cau del model
+        uses: actions/cache@v4
+        with:
+          path: .hf-cache
+          key: gemma-4-e2b-q4-6f21c99
+
+      - name: Analitza fotos de prova amb el prompt de l'app
+        run: node tools/ci_gemma.mjs
+        env:
+          HF_CACHE_DIR: .hf-cache
