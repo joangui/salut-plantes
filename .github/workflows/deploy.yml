@@ -103,3 +103,14 @@ jobs:
     steps:
       - id: deployment
         uses: actions/deploy-pages@v4
+
+      - name: Comprova el lloc publicat
+        env:
+          URL: ${{ steps.deployment.outputs.page_url }}
+        run: |
+          sleep 30
+          for f in "" sw.js app.js ranking.js models/manifest.json vendor/ort/ort.wasm.min.mjs; do
+            printf '%s  %s\n' "$(curl -s -o /dev/null -w '%{http_code}' "$URL$f")" "/$f"
+          done
+          curl -s "${URL}sw.js" | grep -m1 'const VERSION'
+          curl -s "$URL" | grep -o '<title>[^<]*</title>'

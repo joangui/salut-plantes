@@ -5,8 +5,9 @@ import { PLANTS, GENUS, normSci } from "./kb.js";
 export const FLORA_SCALE = 100;
 // Pes relatiu de cada fila de la taula. El model coneix 4.300 espècies, moltes d'exòtiques,
 // mentre que la gent fotografia sobretot plantes de jardí, balcó i casa: les de la guia.
-// other = 0 vol dir «només les plantes de la guia i els seus gèneres».
-export const FLORA_PRIOR = { species: 100, genus: 10, other: 1 };
+// Amb 108 fotos reals, un pes fort millora les plantes de la guia (32 % → ~50 % d'encerts)
+// sense fer perdre les de fora que el model reconeix bé. other = 0 vol dir «només la guia».
+export const FLORA_PRIOR = { species: 1000, genus: 3, other: 1 };
 // El model d'interior dona probabilitats molt planes (~10 %). La temperatura les fa comparables.
 export const HOUSE_TEMP = 0.35;
 

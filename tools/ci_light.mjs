@@ -6,7 +6,7 @@ import { readFileSync, writeFileSync, mkdirSync } from "node:fs";
 import sharp from "sharp";
 import { SIZE, toCHW, l2normalize, f16ToF32, f32ArrayToF16, similarities, cosine } from "../preprocess.js";
 import { normSci } from "../kb.js";
-import { mergeCandidates, confidenceFromP, HOUSE_WEIGHT } from "../logic.js";
+import { mergeCandidates, candidateConfidence, confidenceFromP, HOUSE_WEIGHT } from "../logic.js";
 import { fetchPhotos } from "./photos.mjs";
 import { FLORA_PRIOR, HOUSE_TEMP, floraPrior, floraMembership, rankFlora, houseProbs } from "../ranking.js";
 
@@ -139,25 +139,23 @@ console.log(`  App: ${cfgName(FLORA_PRIOR)} · T ${HOUSE_TEMP} · ${fmtW(HOUSE_W
 
 console.log("\nApp, foto per foto (lloc real):");
 const conf = { high: [0, 0], medium: [0, 0], low: [0, 0] };
-const capped = { 0.45: [0, 0], 0.5: [0, 0], 0.55: [0, 0], 0.6: [0, 0] };
+const pOnly = { high: [0, 0], medium: [0, 0], low: [0, 0] };
 const rows = [];
 items.forEach((it, j) => {
   const cands = mergeCandidates({ flora: floraTops[appK][j], house: houseTops[HOUSE_TEMP][j] }, it.setting, HOUSE_WEIGHT);
   const top = cands[0];
   const ok = matches(top.sci, it.expected);
-  const c = confidenceFromP(top.p);
+  const c = candidateConfidence(top);
   conf[c][0] += ok; conf[c][1]++;
-  for (const t of Object.keys(capped)) {
-    if (c === "high" && (top.src !== "flora" || top.cos >= Number(t))) { capped[t][0] += ok; capped[t][1]++; }
-  }
+  const c0 = confidenceFromP(top.p);
+  pOnly[c0][0] += ok; pOnly[c0][1]++;
   const mark = ok ? "✔" : genus(top.sci) === genus(it.expected) ? "≈" : "✘";
   const list = cands.slice(0, 3).map((x) => `${x.sci} ${Math.round(x.p * 100)}%${x.src === "flora" ? "" : x.src === "house" ? " [int]" : " [els dos]"}`).join(" | ");
   console.log(`  ${mark} ${it.title.padEnd(26)} ${(it.guia ? "" : "(fora) ") + it.expected}${it.inTable ? "" : " [no és a la taula]"} → ${list} · cos ${top.cos?.toFixed(3) ?? "—"} · ${c}`);
   rows.push({ photo: it.title, expected: it.expected, setting: it.setting, guia: it.guia, ok, top: cands.slice(0, 3), confidence: c });
 });
 console.log("\nConfiança que mostra l'app i encerts reals:");
-for (const [k, [ok, n]] of Object.entries(conf)) console.log(`  ${k.padEnd(7)} ${String(n).padStart(3)} fotos · encerts ${pct(ok, n)}`);
-for (const [t, [ok, n]] of Object.entries(capped)) console.log(`  alta només si cos ≥ ${t} (o ho confirma el model d'interior): ${n} fotos · encerts ${pct(ok, n)}`);
+for (const [k, [ok, n]] of Object.entries(conf)) console.log(`  ${k.padEnd(7)} ${String(n).padStart(3)} fotos · encerts ${pct(ok, n)}   (només amb la probabilitat: ${pOnly[k][1]} fotos · ${pct(...pOnly[k])})`);
 if (f16cos.length) console.log(`fp16 vs fp32 (cosinus mitjà): ${(f16cos.reduce((a, b) => a + b, 0) / f16cos.length).toFixed(4)}`);
 
 mkdirSync("ci-artifacts", { recursive: true });

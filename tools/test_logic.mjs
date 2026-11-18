@@ -1,7 +1,7 @@
 // Tests de la base de coneixement i de la lògica de l'informe (Node, sense navegador).
 import assert from "node:assert/strict";
 import { SYMPTOMS, PROBLEMS, CARE_GROUPS, PLANTS, GENUS, HOUSEPLANT_SCI, plantInfo, diagnose, pickerOptions } from "../kb.js";
-import { mergeCandidates, parseGemma, buildGemmaPrompt, compose, firstJsonObject } from "../logic.js";
+import { mergeCandidates, candidateConfidence, parseGemma, buildGemmaPrompt, compose, firstJsonObject } from "../logic.js";
 
 let n = 0;
 function test(name, fn) { fn(); n++; console.log(`ok ${n} - ${name}`); }
@@ -87,6 +87,13 @@ test("el model d'interior pesa segons on és la planta", () => {
   assert.equal(mergeCandidates({ flora: [], house: [{ label: "Tulip", p: 0.9 }] }, "pot", W)[0].sci, "Tulipa");
 });
 
+test("la confiança alta demana una foto clara o la confirmació del model d'interior", () => {
+  assert.equal(candidateConfidence({ sci: "Olea europaea", p: 0.95, cos: 0.65, src: "flora" }), "high");
+  assert.equal(candidateConfidence({ sci: "Olea europaea", p: 0.95, cos: 0.55, src: "flora" }), "medium");
+  assert.equal(candidateConfidence({ sci: "Ficus elastica", p: 0.55, cos: 0.55, src: "both" }), "high");
+  assert.equal(candidateConfidence({ sci: "Ficus elastica", p: 0.1, src: "house" }), "low");
+});
+
 test("lectura de la resposta de Gemma (només codis)", () => {
   const raw = "Aquí tens:\n```json\n{\"candidate\": \"2\", \"other\": \"\", \"id_confidence\": \"High\", \"symptoms\": [\"pugo\", \"oid\", \"melassa\", \"inventat\", \"po\"], \"health\": \"needs attention\", \"pests\": \"found\"}\n```";
   const g = parseGemma(raw);
@@ -127,13 +134,27 @@ test("informe amb IA: cap candidat encaixa i la IA en proposa un altre", () => {
   const run = { cands: [{ sci: "Monstera deliciosa", p: 0.99 }], ai: parseGemma('{"candidate":0,"other":"Fatsia japonica","id_confidence":"low","symptoms":[],"health":"healthy","pests":"none_seen"}'), symptoms: [], date: new Date() };
   assert.equal(compose(run).sci, "Monstera deliciosa");
   const run2 = { ...run, ai: { ...run.ai, idConf: "high" } };
-  assert.equal(compose(run2).sci, "Fatsia japonica");
+  assert.equal(compose(run2).sci, "Monstera deliciosa");
+  assert.equal(compose(run2).conf, "medium");
+  assert.match(compose(run2).alts[0], /Fatsia japonica/);
+  // Ordre alfabètic: l'opció 1 és Citrus encara que el model botànic prefereixi Persea (i Abies queda fora, < 3 %).
+  const lemon = { cands: [{ sci: "Persea americana", p: 0.6 }, { sci: "Citrus × limon", p: 0.35 }, { sci: "Abies alba", p: 0.01 }], symptoms: [], date: new Date() };
+  assert.match(buildGemmaPrompt({ symptoms: [], photoCount: 1, iso: "2026-11-18", setting: "" }, lemon.cands), /\n1\. Citrus × limon\n2\. Persea americana\n\n/);
+  const pick = (json) => compose({ ...lemon, ai: parseGemma(json) });
+  assert.equal(pick('{"candidate":1,"id_confidence":"high"}').displayName, "Llimoner");
+  assert.equal(pick('{"candidate":1,"id_confidence":"high"}').conf, "medium");
+  assert.equal(pick('{"candidate":1,"id_confidence":"medium"}').conf, "low");
+  assert.equal(pick('{"candidate":1,"id_confidence":"low"}').sci, "Persea americana");
+  assert.equal(pick('{"candidate":1,"id_confidence":"low"}').conf, "medium");
+  assert.equal(pick('{"candidate":2,"id_confidence":"medium"}').sci, "Persea americana");
+  assert.equal(pick('{"candidate":2,"id_confidence":"medium"}').conf, "high");
   assert.equal(compose(run).summary, "La IA no hi veu cap símptoma de malaltia ni de plagues: la planta sembla sana.");
 });
 
 test("el prompt inclou candidats, codis i context", () => {
   const p = buildGemmaPrompt({ symptoms: ["pugo"], photoCount: 2, location: "Barcelona", iso: "2026-11-18", setting: "pot" }, [{ sci: "Olea europaea", p: 0.4 }]);
-  assert.match(p, /1\. Olea europaea \(40%\)/);
+  assert.match(p, /\n1\. Olea europaea\n/);
+  assert.ok(!/%/.test(p.split("Symptom codes")[0]));
   assert.match(p, /pols_blanca = white powdery coating/);
   assert.match(p, /outdoors in a pot/);
   assert.match(p, /The 2 photos show/);

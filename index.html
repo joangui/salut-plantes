@@ -412,8 +412,8 @@ input[type="text"]:focus-visible { outline: 2px solid var(--stamp); outline-offs
 
   <footer class="how" id="com-funciona">
     <h2>Com funciona</h2>
-    <p>La identificació la fa un model botànic obert, BioCLIP 2.5 destil·lat per a mòbils, que reconeix 4.271 espècies de plantes, amb l'ajuda d'un segon model per a 47 plantes d'interior habituals. El model botànic es va entrenar amb plantes silvestres i no coneix bé els cítrics ni algunes plantes de jardí; si s'equivoca, corregeix-lo amb «No és aquesta planta?».</p>
-    <p>Sense la IA avançada, la salut es valora a partir dels símptomes que marques, i els consells surten d'una guia de cures i tractaments pensada per a Catalunya. Amb la IA avançada, el model Gemma 4 de Google mira també les fotos.</p>
+    <p>La identificació la fa un model botànic obert, BioCLIP 2.5 destil·lat per a mòbils, que compara la foto amb 4.372 espècies i dona preferència a les plantes de la guia, amb l'ajuda d'un segon model per a 47 plantes d'interior. En proves amb fotos reals encerta a la primera unes 2 de cada 3 plantes; si s'equivoca, corregeix-la amb «No és aquesta planta?».</p>
+    <p>Sense la IA avançada, la salut es valora a partir dels símptomes que marques, i els consells surten d'una guia de cures i tractaments pensada per a Catalunya. Amb la IA avançada, el model Gemma 4 de Google mira també les fotos: comprova la planta i marca els símptomes que hi veu. El text de l'informe sempre surt de la guia.</p>
     <p>Els models es descarreguen un sol cop i es desen al navegador. A partir d'aquí, l'app funciona sense connexió i res surt del dispositiu.</p>
     <div class="how-row"><span id="storage"></span><button type="button" class="link-btn" id="clear-data">Esborra els models descarregats</button></div>
     <p>Models: <a href="https://huggingface.co/crazedcodernate/bioclip-2.5-mobile-fastvit">BioCLIP 2.5 mobile</a> (MIT), <a href="https://huggingface.co/onnx-community/house-plant-image-detection-ONNX">plantes d'interior</a> (Apache 2.0) i <a href="https://huggingface.co/onnx-community/gemma-4-E2B-it-ONNX">Gemma 4 E2B</a> (Apache 2.0). Funcionen amb ONNX Runtime Web i Transformers.js.</p>

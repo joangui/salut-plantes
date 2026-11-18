@@ -19,15 +19,21 @@ export function listJoin(items) {
   return items.slice(0, -1).join(", ") + " i " + items.at(-1);
 }
 
-export function confidenceFromP(p) {
-  if (p >= 0.5) return "high";
+// Per sota d'aquest cosinus, el model botànic sovint s'equivoca encara que estigui segur.
+export const COS_HIGH = 0.6;
+
+export function confidenceFromP(p, cos = null) {
+  if (p >= 0.5 && (cos == null || cos >= COS_HIGH)) return "high";
   if (p >= 0.2) return "medium";
   return "low";
 }
 
+// Confiança d'un candidat: si el confirma el model d'interior, no cal mirar el cosinus.
+export const candidateConfidence = (c) => confidenceFromP(c.p, c.src === "flora" ? c.cos : null);
+
 // Pes del model de plantes d'interior segons on és la planta; la resta és del model botànic.
 // Ajustat amb la prova de CI amb fotos reals (tools/ci_light.mjs).
-export const HOUSE_WEIGHT = { indoors: 0.65, "": 0.35, pot: 0.25, ground: 0 };
+export const HOUSE_WEIGHT = { indoors: 0.65, "": 0.5, pot: 0.25, ground: 0 };
 
 // Combina el model botànic amb el de plantes d'interior (probabilitats ja calibrades).
 export function mergeCandidates(res, setting, weights = HOUSE_WEIGHT) {
@@ -63,16 +69,22 @@ export function mergeCandidates(res, setting, weights = HOUSE_WEIGHT) {
 
 const AI_SYMPTOMS = SYMPTOMS.filter((s) => s.en);
 
+// Candidats que veu la IA: els més probables (com a mínim un 3 %), en ordre alfabètic i sense
+// percentatges, perquè triï pel que veu. Amb percentatges, Gemma triava sempre el primer.
+export function aiCandidates(cands) {
+  return cands.slice(0, 5).filter((c, i) => i === 0 || c.p >= 0.03).sort((a, b) => a.sci.localeCompare(b.sci));
+}
+
 export function buildGemmaPrompt(ctx, cands) {
   const n = ctx.photoCount;
-  const list = cands.slice(0, 5).map((c, i) => `${i + 1}. ${c.sci} (${Math.round(c.p * 100)}%)`).join("\n");
+  const list = aiCandidates(cands).map((c, i) => `${i + 1}. ${c.sci}`).join("\n");
   const owner = ctx.symptoms.length ? ctx.symptoms.map((id) => SYMPTOM_BY_ID[id]?.en).filter(Boolean).join("; ") : "nothing";
   const codes = AI_SYMPTOMS.map((s) => `${s.id} = ${s.en}`).join("\n");
   return [
     `You are an expert horticulturist and plant pathologist. ${n === 1 ? "The photo shows" : `The ${n} photos show`} one plant. Look closely.`,
     `Reply with ONE JSON object only. No markdown, no explanations, no other text.`,
     ``,
-    `Candidate identifications from a plant model (it can be wrong):`,
+    `Possible identifications from a plant model, in alphabetical order (any of them can be wrong):`,
     list || "(none)",
     ``,
     `Context: it grows ${SETTINGS_EN[ctx.setting] || "in an unknown place"}; location ${ctx.location || "unknown"}; date ${ctx.iso}. The owner also reports: ${owner}.`,
@@ -84,7 +96,7 @@ export function buildGemmaPrompt(ctx, cands) {
     `{"candidate": 1, "other": "", "id_confidence": "high", "symptoms": ["code"], "health": "healthy", "pests": "none_seen"}`,
     ``,
     `Rules:`,
-    `- "candidate": the number of the candidate that matches the plant, or 0 if none matches.`,
+    `- "candidate": the number of the option that matches the plant you see, or 0 if none matches. Do not just pick the first one.`,
     `- "other": only when candidate is 0, the scientific name (Genus species) of the plant.`,
     `- "id_confidence": high, medium or low.`,
     `- "symptoms": only codes from the list that you can clearly see in the photos. Use [] if the plant looks healthy.`,
@@ -180,27 +192,40 @@ export function compose(run, forcedSci = null) {
   const cands = run.cands || [];
   const ai = run.ai;
 
-  // Identificació
+  // Identificació: el model botànic proposa; la IA, si n'hi ha, ho comprova pel seu compte.
   let sci = "", conf = "low";
   const top = cands[0];
+  const extra = [];
+  const atMost = (c, max) => (CONF_RANK[c] > CONF_RANK[max] ? max : c);
   if (forcedSci) { sci = forcedSci; conf = "user"; }
-  else if (ai && ai.candidate >= 1 && ai.candidate <= Math.min(5, cands.length)) {
-    const c = cands[ai.candidate - 1];
-    sci = c.sci;
-    const light = confidenceFromP(c.p);
-    conf = ai.candidate === 1 && CONF_RANK[light] > CONF_RANK[ai.idConf] ? light : ai.idConf;
-    if (ai.candidate > 1 && conf === "high") conf = "medium";
-  } else if (ai && ai.candidate === 0 && ai.other && ai.idConf !== "low") {
-    sci = ai.other;
-    conf = "medium";
-  } else if (top) {
+  else if (top) {
     sci = top.sci;
-    conf = confidenceFromP(top.p);
+    conf = candidateConfidence(top);
+    const opts = ai ? aiCandidates(cands) : [];
+    const pick = ai?.candidate >= 1 ? opts[ai.candidate - 1] : null;
+    if (pick && speciesKey(pick.sci) === speciesKey(top.sci)) {
+      // Coincideixen: la IA pot pujar la confiança (fins a «mitjana» si el model botànic dubtava molt).
+      const both = Math.max(CONF_RANK[conf], CONF_RANK[ai.idConf]);
+      conf = Object.keys(CONF_RANK)[conf === "low" ? Math.min(both, 1) : both];
+    } else if (pick) {
+      // No coincideixen: mana la IA si està segura i el model botànic no ho està del tot.
+      if (ai.idConf !== "low" && top.p < 0.9) { sci = pick.sci; conf = ai.idConf === "high" ? "medium" : "low"; }
+      else conf = atMost(conf, "medium");
+    } else if (ai && ai.candidate === 0) {
+      // Cap opció no li encaixa: es manté la planta, amb menys confiança, i es mostra la proposta de la IA.
+      conf = atMost(conf, "medium");
+      if (ai.other && ai.idConf !== "low") extra.push(ai.other);
+    }
+  } else if (ai?.other && ai.idConf !== "low") {
+    sci = ai.other;
+    conf = "low";
   }
   const info = plantInfo(sci);
   const key = speciesKey(sci);
-  const alts = cands.filter((c) => speciesKey(c.sci) !== key).slice(0, 2)
-    .map((c) => { const i = plantInfo(c.sci); return i.ca ? `${i.ca} (${c.sci})` : c.sci; });
+  const alts = [...extra.map((x) => ({ sci: x })), ...cands]
+    .filter((c, i, all) => speciesKey(c.sci) !== key && all.findIndex((d) => speciesKey(d.sci) === speciesKey(c.sci)) === i)
+    .slice(0, 2)
+    .map((c) => { const i = plantInfo(c.sci); return i.ca ? `${i.ca} (${i.sci})` : c.sci; });
 
   // Salut
   const aiSymptoms = ai?.symptoms || [];
